@@ -6,7 +6,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, provide, ref } from "vue";
+import { onMounted, onUnmounted, provide, ref, reactive } from "vue";
 import NodeSearchboxPopover from "@/components/NodeSearchBoxPopover.vue";
 import ProgressSpinner from "primevue/progressspinner";
 import { api } from "@/scripts/api";
@@ -14,12 +14,14 @@ import {
   NodeSearchService,
   SYSTEM_NODE_DEFS,
 } from "./services/nodeSearchService";
-import { ColorPaletteLoadedEvent } from "./types/colorPalette";
+import { ColorPaletteLoadedEvent, ColorPalettes } from "./types/colorPalette";
 import { LiteGraphNodeSearchSettingEvent } from "./scripts/ui";
+import { colorPalettes } from "./extensions/core/colorPalette";
 
 const isLoading = ref(true);
 const nodeSearchEnabled = ref(false);
 const nodeSearchService = ref<NodeSearchService>();
+const userColorPalette: ColorPalettes = reactive(colorPalettes);
 
 const updateTheme = (e: ColorPaletteLoadedEvent) => {
   const DARK_THEME_CLASS = "dark-theme";
@@ -30,6 +32,8 @@ const updateTheme = (e: ColorPaletteLoadedEvent) => {
   } else {
     document.body.classList.remove(DARK_THEME_CLASS);
   }
+
+  Object.assign(userColorPalette, e.detail);
 };
 
 const updateNodeSearchSetting = (e: LiteGraphNodeSearchSettingEvent) => {
@@ -72,6 +76,7 @@ onUnmounted(() => {
 });
 
 provide("nodeSearchService", nodeSearchService);
+provide("userColorPalette", userColorPalette);
 </script>
 
 <style scoped>

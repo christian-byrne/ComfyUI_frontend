@@ -5,7 +5,14 @@ https://github.com/Nuked88/ComfyUI-N-Sidebar/blob/7ae7da4a9761009fb6629bc04c6830
 <template>
   <div class="_sb_node_preview">
     <div class="_sb_table">
-      <div class="node_header">
+      <div
+        class="node_header"
+        :style="{
+          backgroundColor:
+            userColorPalette.colors.litegraph_base.NODE_DEFAULT_COLOR,
+          color: userColorPalette.colors.litegraph_base.NODE_TITLE_COLOR,
+        }"
+      >
         <div class="_sb_dot headdot"></div>
         {{ nodeDef.display_name }}
       </div>
@@ -17,9 +24,20 @@ https://github.com/Nuked88/ComfyUI-N-Sidebar/blob/7ae7da4a9761009fb6629bc04c6830
         class="_sb_row slot_row"
       >
         <div class="_sb_col">
-          <div v-if="slotInput" :class="['_sb_dot', slotInput.type]"></div>
+          <div
+            v-if="slotInput"
+            :class="['_sb_dot', slotInput.type]"
+            :style="{ backgroundColor: slotInput.connectionColor }"
+          ></div>
         </div>
-        <div class="_sb_col">{{ slotInput ? slotInput.name : "" }}</div>
+        <div
+          class="_sb_col"
+          :style="{
+            color: userColorPalette.colors.litegraph_base.NODE_TEXT_COLOR,
+          }"
+        >
+          {{ slotInput ? slotInput.name : "" }}
+        </div>
         <div class="_sb_col middle-column"></div>
         <div class="_sb_col _sb_inherit">
           {{ slotOutput ? slotOutput.name : "" }}
@@ -32,9 +50,25 @@ https://github.com/Nuked88/ComfyUI-N-Sidebar/blob/7ae7da4a9761009fb6629bc04c6830
       <!-- Node widget inputs -->
       <div v-for="widgetInput in widgetInputDefs" class="_sb_row _long_field">
         <div class="_sb_col _sb_arrow">&#x25C0;</div>
-        <div class="_sb_col">{{ widgetInput.name }}</div>
+        <div
+          class="_sb_col"
+          :style="{
+            color:
+              userColorPalette.colors.litegraph_base
+                .WIDGET_SECONDARY_TEXT_COLOR,
+          }"
+        >
+          {{ widgetInput.name }}
+        </div>
         <div class="_sb_col middle-column"></div>
-        <div class="_sb_col _sb_inherit">{{ widgetInput.defaultValue }}</div>
+        <div
+          class="_sb_col _sb_inherit"
+          :style="{
+            color: userColorPalette.colors.litegraph_base.WIDGET_TEXT_COLOR,
+          }"
+        >
+          {{ widgetInput.defaultValue }}
+        </div>
         <div class="_sb_col _sb_arrow">&#x25B6;</div>
       </div>
     </div>
@@ -47,8 +81,9 @@ https://github.com/Nuked88/ComfyUI-N-Sidebar/blob/7ae7da4a9761009fb6629bc04c6830
 <script setup lang="ts">
 import { app } from "@/scripts/app";
 import { type ComfyNodeDef } from "@/types/apiTypes";
+import { ColorPalettes } from "@/types/colorPalette";
 import _ from "lodash";
-import { PropType } from "vue";
+import { inject, PropType } from "vue";
 
 const props = defineProps({
   nodeDef: {
@@ -58,12 +93,14 @@ const props = defineProps({
 });
 
 const nodeDef = props.nodeDef as ComfyNodeDef;
+const userColorPalette = inject<ColorPalettes>("userColorPalette");
 
 // --------------------------------------------------
 // TODO: Move out to separate file
 interface IComfyNodeInputDef {
   name: string;
   type: string;
+  slotColor: string;
   widgetType: string | null;
   defaultValue: any;
 }
@@ -84,6 +121,7 @@ const allInputDefs: IComfyNodeInputDef[] = Object.entries(allInputs).map(
     return {
       name: inputName,
       type: inputData[0],
+      slotColor: userColorPalette.colors.node_slot[inputData[0]],
       widgetType: app.getWidgetType(inputData, inputName),
       defaultValue:
         inputData[1]?.default ||
@@ -177,7 +215,7 @@ const widgetInputDefs = allInputDefs.filter((input) => !!input.widgetType);
   font-family: "Open Sans", sans-serif;
   font-size: small;
   color: var(--descrip-text);
-  border: 1px solid var(--descrip-text);
+  border: 0;
   min-width: 300px;
   width: min-content;
   height: fit-content;
@@ -229,6 +267,9 @@ const widgetInputDefs = allInputDefs.filter((input) => !!input.widgetType);
   flex-wrap: nowrap;
   align-content: flex-start;
   justify-content: flex-end;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 ._sb_inherit {
@@ -241,7 +282,6 @@ const widgetInputDefs = allInputDefs.filter((input) => !!input.widgetType);
   margin: 5px 5px 0 5px;
   border-radius: 10px;
   line-height: 1.7;
-  text-wrap: nowrap;
 }
 
 ._sb_arrow {
@@ -253,5 +293,6 @@ const widgetInputDefs = allInputDefs.filter((input) => !!input.widgetType);
   background: var(--comfy-input-bg);
   font-weight: bold;
   color: var(--error-text);
+  margin-bottom: 5px;
 }
 </style>

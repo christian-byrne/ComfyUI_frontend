@@ -6,7 +6,7 @@ import { LGraphCanvas, LiteGraph } from "@comfyorg/litegraph";
 
 // Manage color palettes
 
-const colorPalettes: ColorPalettes = {
+export const colorPalettes: ColorPalettes = {
   dark: {
     id: "dark",
     name: "Dark (Default)",
