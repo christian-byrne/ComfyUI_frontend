@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   collect:
-    if: github.repository == 'Comfy-Org/ComfyUI_frontend'
+    if: github.repository == 'Comfy-Org/ComfyUI_frontend' || github.repository == 'christian-byrne/ComfyUI_frontend'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     container:

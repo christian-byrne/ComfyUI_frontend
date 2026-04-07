@@ -20,7 +20,7 @@ jobs:
   comment:
     runs-on: ubuntu-latest
     if: >
-      github.repository == 'Comfy-Org/ComfyUI_frontend' &&
+      (github.repository == 'Comfy-Org/ComfyUI_frontend' || github.repository == 'christian-byrne/ComfyUI_frontend') &&
       github.event.workflow_run.event == 'pull_request'
     steps:
       - uses: actions/checkout@v6
