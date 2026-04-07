@@ -232,3 +232,4 @@ If the Istanbul approach encounters blocking issues (e.g., `vite-plugin-istanbul
   "test:browser:coverage": "INSTRUMENT_COVERAGE=true pnpm test:browser && nyc report --reporter=html --reporter=lcov --temp-dir=.nyc_output --report-dir=coverage/playwright"
 }
 ```
+
