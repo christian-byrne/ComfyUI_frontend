@@ -2,7 +2,7 @@ meta:
   schema_version: 1
   created: 2026-05-06
   sweep_date: 2026-05-06
-  patterns_count: 52
+  patterns_count: 56
   sweep_status: in-progress
   sweeps_done:
   - bootstrap-from-R4
@@ -16,6 +16,7 @@ meta:
   - S8-partial
   - expansion-from-AGENTSmd-and-ADR0008
   - evidence-sweep-pass-1
+  - evidence-sweep-pass-2
   sweeps_remaining:
   - S2.N12/N13 — onConnectInput / onConnectOutput MCP sweep across 40+ packs
   - S2.N14 — onWidgetChanged MCP sweep across 40+ packs
@@ -460,6 +461,37 @@ patterns:
     variant: canonical
     breakage_class: silent
     notes: OUR OWN CORE patches processMouseDown and processMouseMove
+  - repo: yolain/ComfyUI-Easy-Use-Frontend
+    file: src/extensions/ui.js
+    lines:
+    - 1
+    url: https://github.com/yolain/ComfyUI-Easy-Use-Frontend/blob/main/src/extensions/ui.js#L1
+    variant: drawNodeShape-patch
+    breakage_class: silent
+    notes: Easy-Use is a major pack; patches LGraphCanvas.prototype.drawNodeShape
+  - repo: melMass/comfy_mtb
+    file: web/note_plus.js
+    lines:
+    - 1
+    url: https://github.com/melMass/comfy_mtb/blob/main/web/note_plus.js#L1
+    variant: canvas-draw-patch
+    breakage_class: silent
+    notes: comfy_mtb (popular pack) — note_plus draws decorations via canvas patching
+  - repo: lucafoscili/lf-nodes
+    file: web/src/nodes/reroute.ts
+    lines:
+    - 1
+    url: https://github.com/lucafoscili/lf-nodes/blob/main/web/src/nodes/reroute.ts#L1
+    variant: onDrawForeground+canvas-draw
+    breakage_class: silent
+  - repo: krismasdev/ComfyUI-Flux-Continuum
+    file: web/outputgetnode.js
+    lines:
+    - 1
+    url: https://github.com/krismasdev/ComfyUI-Flux-Continuum/blob/main/web/outputgetnode.js#L1
+    variant: onDrawForeground
+    breakage_class: silent
+  evidence_status: swept
 - pattern_id: S5.A1
   surface_family: S5
   surface: app.api.addEventListener — the existence-proof of events-everywhere
@@ -520,6 +552,16 @@ patterns:
     variant: canonical
     breakage_class: undefined-behavior
     notes: setupModeChanger and setupGroupsModeChanger both flip this flag
+  - repo: ComfyNodePRs/PR-comfyui-pkg39-ccab78b5
+    file: js/libs/image.js
+    lines:
+    - 541
+    - 1382
+    url: https://github.com/ComfyNodePRs/PR-comfyui-pkg39-ccab78b5/blob/main/js/libs/image.js#L541
+    variant: filter-by-virtual
+    breakage_class: loud
+    notes: extension code filters nodes by isVirtualNode — treats it as discovery API
+  evidence_status: swept
 - pattern_id: S1.H1
   surface_family: S1
   surface: ComfyExtension.loadedGraphNode hook
@@ -1464,7 +1506,23 @@ patterns:
   test_target: SELECTION_LIFECYCLE
   lifecycle_coupling: 0
   severity: MEDIUM
-  evidence_status: pending-mcp-sweep
+  evidence_status: swept
+  evidence:
+  - repo: nodelee733/ComfyUI-mxToolkit
+    file: js/Slider.js
+    lines:
+    - 1
+    url: https://github.com/nodelee733/ComfyUI-mxToolkit/blob/main/js/Slider.js#L1
+    variant: prototype-patch
+    breakage_class: silent
+    notes: mxToolkit Slider patches onSelected for highlight state
+  - repo: nodelee733/ComfyUI-mxToolkit
+    file: js/Slider2D.js
+    lines:
+    - 1
+    url: https://github.com/nodelee733/ComfyUI-mxToolkit/blob/main/js/Slider2D.js#L1
+    variant: prototype-patch
+    breakage_class: silent
 - pattern_id: S2.N18
   surface_family: S2
   surface: nodeType.prototype.onPropertyChanged patching
@@ -1486,7 +1544,31 @@ patterns:
   test_target: RESIZE_LIFECYCLE
   lifecycle_coupling: 0
   severity: MEDIUM
-  evidence_status: pending-mcp-sweep
+  evidence_status: swept
+  evidence:
+  - repo: SKBv0/ComfyUI_SKBundle
+    file: js/MultiFloat.js
+    lines:
+    - 1
+    url: https://github.com/SKBv0/ComfyUI_SKBundle/blob/main/js/MultiFloat.js#L1
+    variant: prototype-patch
+    breakage_class: silent
+    notes: MultiFloat widget syncs internal layout on resize
+  - repo: PGCRT/CRT-Nodes
+    file: js/Magic_Lora_Loader.js
+    lines:
+    - 1
+    url: https://github.com/PGCRT/CRT-Nodes/blob/main/js/Magic_Lora_Loader.js#L1
+    variant: prototype-patch
+    breakage_class: silent
+  - repo: dorpxam/ComfyUI-LTX2-Microscope
+    file: web/js/ui/visualizer.js
+    lines:
+    - 1
+    url: https://github.com/dorpxam/ComfyUI-LTX2-Microscope/blob/main/web/js/ui/visualizer.js#L1
+    variant: prototype-patch
+    breakage_class: silent
+    notes: visualizer reflows DOM widget on resize
 - pattern_id: S9.R1
   surface_family: S9
   surface: Reroute creation / mutation (LiteGraph.createRerouteOnLink, graph.reroutes, node.connectByRerouteId)
@@ -1497,8 +1579,26 @@ patterns:
   test_target: REROUTE_LIFECYCLE
   lifecycle_coupling: 1
   severity: MEDIUM
-  evidence_status: pending-mcp-sweep
+  evidence_status: swept
   notes: Largely internal today; community packs that build linear-flow tools (e.g. Eclipse) interact with these
+  evidence:
+  - repo: linjm8780860/ljm_comfyui
+    file: src/utils/vintageClipboard.ts
+    lines:
+    - 1
+    url: https://github.com/linjm8780860/ljm_comfyui/blob/main/src/utils/vintageClipboard.ts#L1
+    variant: graph.reroutes.values()
+    breakage_class: loud
+    notes: iterates reroute map directly — fork of frontend, but represents real internal contract surface
+  - repo: nodetool-ai/nodetool
+    file: subgraphs.md
+    lines:
+    - 1
+    - 50
+    url: https://github.com/nodetool-ai/nodetool/blob/main/subgraphs.md#L1
+    variant: documented-pattern
+    breakage_class: loud
+    notes: external doc treats graph.reroutes as part of subgraph contract
 - pattern_id: S9.G1
   surface_family: S9
   surface: LGraphGroup creation / mutation (graph.groups, group.color, group.font, group.children)
@@ -1560,7 +1660,7 @@ patterns:
   test_target: SUBGRAPH_VIRTUAL_RESOLUTION
   lifecycle_coupling: 2
   severity: CRITICAL
-  evidence_status: bootstrap
+  evidence_status: swept
   evidence:
   - repo: kijai/ComfyUI-KJNodes
     file: web/js/setgetnodes.js
@@ -1570,6 +1670,22 @@ patterns:
     variant: virtual-node-resolution
     breakage_class: silent
     notes: Cross-reference S6.A1 evidence; the KJ Set/Get pattern is THE motivating example for this surface
+  - repo: krismasdev/ComfyUI-Flux-Continuum
+    file: web/hint.js
+    lines:
+    - 1
+    url: https://github.com/krismasdev/ComfyUI-Flux-Continuum/blob/main/web/hint.js#L1
+    variant: virtual-node-companion
+    breakage_class: silent
+    notes: Flux Continuum hint system depends on Set/Get virtual node graph
+  - repo: SpaceWarpStudio/ComfyUI-SetInputGetOutput
+    file: web/js/setinputgetoutput.js
+    lines:
+    - 1
+    url: https://github.com/SpaceWarpStudio/ComfyUI-SetInputGetOutput/blob/main/web/js/setinputgetoutput.js#L1
+    variant: full-implementation
+    breakage_class: loud
+    notes: another SetInput/GetOutput pack — variant of KJNodes pattern
 - pattern_id: S10.D1
   surface_family: S10
   surface: node.addInput / node.removeInput / node.addOutput / node.removeOutput dynamic slot mutation
@@ -1619,7 +1735,25 @@ patterns:
   test_target: PROGRAMMATIC_LINKING
   lifecycle_coupling: 1
   severity: MEDIUM
-  evidence_status: pending-mcp-sweep
+  evidence_status: swept
+  evidence:
+  - repo: MockbaTheBorg/ComfyUI-Mockba
+    file: js/slider.js
+    lines:
+    - 1
+    url: https://github.com/MockbaTheBorg/ComfyUI-Mockba/blob/main/js/slider.js#L1
+    variant: programmatic-disconnect
+    breakage_class: loud
+    notes: app.graph.getNodeById(tlink.target_id).disconnectInput(tlink.target_slot)
+  - repo: vjumpkung/comfyui-infinitetalk-native-sampler
+    file: README.md
+    lines:
+    - 1
+    - 50
+    url: https://github.com/vjumpkung/comfyui-infinitetalk-native-sampler/blob/main/README.md#L1
+    variant: documented-as-API
+    breakage_class: loud
+    notes: 3rd-party docs treat node.disconnect* as a stable extension surface
 - pattern_id: S11.G1
   surface_family: S11
   surface: graph._version mutation / read for change-tracking
@@ -1754,7 +1888,45 @@ patterns:
   test_target: SCHEMA_INSPECTION
   lifecycle_coupling: 0
   severity: HIGH
-  evidence_status: pending-mcp-sweep
+  evidence_status: swept
+  evidence:
+  - repo: xeinherjer-dev/ComfyUI-XENodes
+    file: web/js/combo_selector.js
+    lines:
+    - 1
+    url: https://github.com/xeinherjer-dev/ComfyUI-XENodes/blob/main/web/js/combo_selector.js#L1
+    variant: nodeData.input.optional
+    breakage_class: silent
+    notes: reads nodeData.input.optional to drive UI generation
+  - repo: StableLlama/ComfyUI-basic_data_handling
+    file: web/js/dynamicnode.js
+    lines:
+    - 1
+    url: https://github.com/StableLlama/ComfyUI-basic_data_handling/blob/main/web/js/dynamicnode.js#L1
+    variant: nodeData.input.optional
+    breakage_class: silent
+  - repo: IXIWORKS-KIMJUNGHO/comfyui-ixiworks-tools
+    file: js/sb_concat.js
+    lines:
+    - 1
+    url: https://github.com/IXIWORKS-KIMJUNGHO/comfyui-ixiworks-tools/blob/main/js/sb_concat.js#L1
+    variant: nodeData.input.optional
+    breakage_class: silent
+  - repo: BennyKok/comfyui-deploy
+    file: web-plugin/index.js
+    lines:
+    - 1
+    url: https://github.com/BennyKok/comfyui-deploy/blob/main/web-plugin/index.js#L1
+    variant: nodeData.input.required
+    breakage_class: silent
+    notes: comfyui-deploy is widely used; treats schema as a public contract
+  - repo: egormly/ComfyUI-EG_Tools
+    file: web/dynamic_inputs.js
+    lines:
+    - 1
+    url: https://github.com/egormly/ComfyUI-EG_Tools/blob/main/web/dynamic_inputs.js#L1
+    variant: nodeData.input.optional
+    breakage_class: silent
 - pattern_id: S14.ID1
   surface_family: S14
   surface: NodeLocatorId / NodeExecutionId parsing/creation
@@ -1986,3 +2158,156 @@ patterns:
     variant: execution_success-doc
     breakage_class: loud
     notes: explicit 'Sidecar-like tracing' depending on execution_* events as public API
+- pattern_id: S11.G3
+  surface_family: S11
+  surface: graph.beforeChange / graph.afterChange — explicit batching seam for multi-step mutations
+  fingerprint: graph.beforeChange(); ...mutations...; graph.afterChange();
+  semantic: extensions wrap multi-node/multi-link mutations in beforeChange/afterChange so undo, dirty-tracking, and re-render coalesce around the batch instead of per-mutation
+  v2_replacement: world.batch(() => { ...mutations... }) — typed batching API
+  decision_ref: First-class batching is required for any reactive layer that wants stable diffs; v2 should expose this as a mandatory wrapper for multi-mutation operations
+  test_target: GRAPH_BATCH_BOUNDARY
+  lifecycle_coupling: 1
+  severity: HIGH
+  evidence_status: swept
+  evidence:
+  - repo: nodetool-ai/nodetool
+    file: subgraphs.md
+    lines:
+    - 1
+    - 50
+    url: https://github.com/nodetool-ai/nodetool/blob/main/subgraphs.md#L1
+    variant: documented-pattern
+    breakage_class: loud
+    notes: docs use beforeChange/afterChange around subgraph promotion
+  - repo: linjm8780860/ljm_comfyui
+    file: src/utils/vintageClipboard.ts
+    lines:
+    - 1
+    url: https://github.com/linjm8780860/ljm_comfyui/blob/main/src/utils/vintageClipboard.ts#L1
+    variant: paste-undo-batch
+    breakage_class: loud
+    notes: paste flow batches mutations across clipboard restore
+- pattern_id: S7.G1
+  surface_family: S7
+  surface: window.LiteGraph / window.comfyAPI.* — globals as public surface
+  fingerprint: window.LiteGraph.createNode(...); window.comfyAPI.app.app
+  semantic: extensions reach into the global namespace for LiteGraph constructors/enums or for the module-as-global comfyAPI registry. This is the closest thing to a 'public ABI' today
+  v2_replacement: explicit `import { app, graph, LiteGraph } from '@comfy/extension'` + a typed registry keyed by extension name; window.* should remain as a deprecated read-only mirror
+  decision_ref: Cannot break window.LiteGraph immediately — too much ecosystem code reaches for it. Must ship typed import path first, then deprecate. Similar story to S11.G2 graph globals.
+  test_target: GLOBAL_NAMESPACE_COMPAT
+  lifecycle_coupling: 0
+  severity: CRITICAL
+  evidence_status: swept
+  evidence:
+  - repo: krismasdev/ComfyUI-Flux-Continuum
+    file: web/hint.js
+    lines:
+    - 1
+    url: https://github.com/krismasdev/ComfyUI-Flux-Continuum/blob/main/web/hint.js#L1
+    variant: window.LiteGraph
+    breakage_class: loud
+  - repo: SpaceWarpStudio/ComfyUI-SetInputGetOutput
+    file: web/js/setinputgetoutput.js
+    lines:
+    - 1
+    url: https://github.com/SpaceWarpStudio/ComfyUI-SetInputGetOutput/blob/main/web/js/setinputgetoutput.js#L1
+    variant: window.LiteGraph
+    breakage_class: loud
+  - repo: ArtHommage/HommageTools
+    file: web/js/index.js
+    lines:
+    - 1
+    url: https://github.com/ArtHommage/HommageTools/blob/main/web/js/index.js#L1
+    variant: window.LiteGraph
+    breakage_class: loud
+  - repo: PROJECTMAD/PROJECT-MAD-NODES
+    file: web/js/index.js
+    lines:
+    - 1
+    url: https://github.com/PROJECTMAD/PROJECT-MAD-NODES/blob/main/web/js/index.js#L1
+    variant: window.LiteGraph
+    breakage_class: loud
+  - repo: ryanontheinside/ComfyUI_RyanOnTheInside
+    file: web/js/index.js
+    lines:
+    - 1
+    url: https://github.com/ryanontheinside/ComfyUI_RyanOnTheInside/blob/main/web/js/index.js#L1
+    variant: window.LiteGraph
+    breakage_class: loud
+  - repo: stavzszn/comfyui-teskors-utils
+    file: web/js/index.js
+    lines:
+    - 1
+    url: https://github.com/stavzszn/comfyui-teskors-utils/blob/main/web/js/index.js#L1
+    variant: window.LiteGraph
+    breakage_class: loud
+- pattern_id: S11.G4
+  surface_family: S11
+  surface: graph.setDirtyCanvas(true, true) — imperative canvas-redraw trigger
+  fingerprint: node.graph?.setDirtyCanvas?.(true, true); app.graph.setDirtyCanvas(true, true);
+  semantic: after any imperative mutation extensions call setDirtyCanvas to force a redraw — the ecosystem's de-facto 'reactivity flush' primitive. v2 reactivity should make this unnecessary
+  v2_replacement: implicit — reactive system schedules redraw automatically when tracked entity mutates. Provide an escape hatch `world.markDirty()` only for non-reactive third-party canvas use
+  decision_ref: Replacing this surface is the strongest evidence that v2 reactivity actually buys something. Should be in v2 'value proposition' demo extension
+  test_target: REDRAW_NO_LONGER_NEEDED
+  lifecycle_coupling: 0
+  severity: MEDIUM
+  evidence_status: swept
+  evidence:
+  - repo: AlexZ1967/ComfyUI_ALEXZ_tools
+    file: web/video_cut_match_upload.js
+    lines:
+    - 111
+    url: https://github.com/AlexZ1967/ComfyUI_ALEXZ_tools/blob/main/web/video_cut_match_upload.js#L111
+    variant: post-mutation-redraw
+    breakage_class: silent
+  - repo: AlexZ1967/ComfyUI_ALEXZ_tools
+    file: web/widget_visibility_profiles.js
+    lines:
+    - 285
+    url: https://github.com/AlexZ1967/ComfyUI_ALEXZ_tools/blob/main/web/widget_visibility_profiles.js#L285
+    variant: post-mutation-redraw
+    breakage_class: silent
+  - repo: AlexZ1967/ComfyUI_ALEXZ_tools
+    file: web/ui/module_node_picker_node_factory.js
+    lines:
+    - 189
+    url: https://github.com/AlexZ1967/ComfyUI_ALEXZ_tools/blob/main/web/ui/module_node_picker_node_factory.js#L189
+    variant: post-mutation-redraw
+    breakage_class: silent
+  - repo: akawana/ComfyUI-Folded-Prompts
+    file: js/FPFoldedPrompts.js
+    lines:
+    - 776
+    - 1087
+    url: https://github.com/akawana/ComfyUI-Folded-Prompts/blob/main/js/FPFoldedPrompts.js#L776
+    variant: post-mutation-redraw
+    breakage_class: silent
+    notes: multiple call sites — extension assumes manual flush is the contract
+- pattern_id: S10.D3
+  surface_family: S10
+  surface: node.setSize(node.computeSize()) — imperative resize after dynamic mutation
+  fingerprint: node.setSize?.(node.computeSize())
+  semantic: after dynamic widget/input/output mutation, extensions manually call computeSize+setSize to reflow the node. Companion to S2.N11 (computeSize override) and S11.G4 (setDirtyCanvas)
+  v2_replacement: automatic — reactive layout system recomputes node size when widget/slot collection changes. Expose `nodeHandle.requestLayout()` only as escape hatch
+  decision_ref: Pairs with S11.G4 — both are 'manual flush' idioms that v2 should obviate
+  test_target: AUTO_RELAYOUT_ON_MUTATION
+  lifecycle_coupling: 0
+  severity: MEDIUM
+  evidence_status: swept
+  evidence:
+  - repo: AlexZ1967/ComfyUI_ALEXZ_tools
+    file: web/widget_visibility_profiles.js
+    lines:
+    - 283
+    url: https://github.com/AlexZ1967/ComfyUI_ALEXZ_tools/blob/main/web/widget_visibility_profiles.js#L283
+    variant: setSize+computeSize
+    breakage_class: silent
+    notes: exact 'node.setSize?.(node.computeSize())' canonical idiom
+  - repo: zhupeter010903/ComfyUI-XYZ-prompt-library
+    file: js/prompt_library_node.js
+    lines:
+    - 466
+    url: https://github.com/zhupeter010903/ComfyUI-XYZ-prompt-library/blob/main/js/prompt_library_node.js#L466
+    variant: manual-height
+    breakage_class: silent
+    notes: commented-out manual setSize — shows the pattern is well-known
