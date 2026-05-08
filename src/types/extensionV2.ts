@@ -167,3 +167,64 @@ export interface ExtensionOptions {
   init?(): void | Promise<void>
   setup?(): void | Promise<void>
 }
+
+// ─── Per-Node Instance Scope (I-SR.1 / I-SR.2) ───────────────────────
+// One NodeInstanceScope per live NodeEntityId. Wraps a Vue EffectScope
+// so scope.stop() cascades cleanup of all watchers/effects/onScopeDispose
+// callbacks registered by extensions during their setup.
+//
+// Per D10d: extensionState is `proxyRefs`-wrapped at the boundary, so
+// callers read e.g. `scope.extensionState['counter'].count` (no `.value`).
+// Per D10b: hooks fire in registration order with a lex tie-break on
+// extension name; within an extension, in call order.
+// Per D12: cloneScope deep-clones extensionState into a fresh scope and
+// does NOT share watchers / handlers / dispose closures.
+
+import type { EffectScope } from 'vue'
+
+/** Stable extension identifier — typically `extension.name`. */
+export type ExtensionId = string
+
+/** Identifier for a built-in lifecycle hook bucket. */
+export type LifecycleHookName = string
+
+export interface RegisteredHook {
+  /** Extension that owns this hook. */
+  readonly extensionId: ExtensionId
+  /** Order in which the owning extension was registered with the host. */
+  readonly registrationOrder: number
+  /** Push order within the owning extension's setup body. */
+  readonly callOrder: number
+  /** The hook callback itself. */
+  readonly fn: (...args: unknown[]) => unknown
+}
+
+export interface NodeInstanceScope {
+  /** Stable id of the backing node entity. */
+  readonly nodeId: NodeEntityId
+  /** Vue EffectScope. All watch/effect/onScopeDispose go through here. */
+  readonly effectScope: EffectScope
+  /**
+   * Per-extension setup state, keyed by ExtensionId.
+   * Mutable: setup may write here; cloneScope deep-clones the whole bag.
+   */
+  extensionState: Record<ExtensionId, unknown>
+  /** Extensions whose setup has already executed against this scope. */
+  readonly setupExtensions: Set<ExtensionId>
+  /** Hooks registered against this scope, bucketed by hook name. */
+  readonly hooks: Map<LifecycleHookName, RegisteredHook[]>
+  /** True after disposeScope has been called. */
+  disposed: boolean
+}
+
+export interface ScopeRegistry {
+  getOrCreateScope(nodeId: NodeEntityId): NodeInstanceScope
+  getScope(nodeId: NodeEntityId): NodeInstanceScope | undefined
+  disposeScope(nodeId: NodeEntityId): void
+  /** Per D12: deep-clones extensionState; fresh scope, no shared watchers. */
+  cloneScope(srcId: NodeEntityId, dstId: NodeEntityId): NodeInstanceScope
+  /** Number of live scopes — diagnostic only. */
+  size(): number
+  /** Drop everything — test-only. */
+  clear(): void
+}

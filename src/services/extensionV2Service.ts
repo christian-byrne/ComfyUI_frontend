@@ -14,13 +14,10 @@
  * See decisions/D3.5-reactive-dispatch-and-scope-alignment.md
  */
 
-import {
-    EffectScope,
-    onScopeDispose,
-    pauseTracking,
-    resetTracking,
-    watch
-} from 'vue'
+import { onScopeDispose, watch } from 'vue'
+
+import { scopeRegistry } from '@/services/ext-v2/scopeRegistry'
+import { runSetupOnce } from '@/services/ext-v2/lifecycle'
 
 // These modules don't exist yet — they will be created as part of ADR 0008.
 import { useWorld } from '@/ecs/world'
@@ -56,37 +53,19 @@ import type {
 } from '@/types/extensionV2'
 
 // ─── Scope Registry ──────────────────────────────────────────────────
-// One EffectScope per extension+entity pair. Disposed when the entity is
-// removed from the World (detected by the reactive mount watcher).
-
-const scopeRegistry = new Map<string, EffectScope>()
-
-// should key be a template literal type like type EffectKey = `${string}:${number}`
+// One NodeInstanceScope per node entity (NOT per extension). Multiple
+// extensions register hooks/watchers inside the same scope; disposeScope
+// stops them all in one EffectScope.stop() cascade.
 //
+// Implementation lives in `./ext-v2/scopeRegistry` (I-SR.2).
+// Lifecycle: `./ext-v2/lifecycle` provides `runSetupOnce` with Vue
+// EffectScope.run() semantics and ordered hook registration (D10b).
 //
-//
-//
-function getOrCreateScope(
-    extensionName: string,
-    entityId: number
-): EffectScope {
-    const key = `${extensionName}:${entityId}`
-    let scope = scopeRegistry.get(key)
-    if (!scope) {
-        scope = new EffectScope(true)
-        scopeRegistry.set(key, scope)
-    }
-    return scope
-}
-
-function stopScope(extensionName: string, entityId: number): void {
-    const key = `${extensionName}:${entityId}`
-    const scope = scopeRegistry.get(key)
-    if (scope) {
-        scope.stop()
-        scopeRegistry.delete(key)
-    }
-}
+// Copy/paste path (D12): `scopeRegistry.cloneScope(srcId, dstId)` is
+// available for the clipboard / duplicate handler. Per the D12 stance,
+// the clone deep-clones extensionState but does NOT re-run setup —
+// integration with the actual copy/paste call site is tracked outside
+// this PR.
 
 // ─── WidgetHandle ────────────────────────────────────────────────────
 
@@ -337,44 +316,49 @@ export function defineWidgetExtension(options: WidgetExtensionOptions): void {
 /**
  * Mount extensions for a newly detected node entity.
  *
- * Follows Vue's setupStatefulComponent pattern:
- * 1. scope.run() activates the EffectScope
- * 2. pauseTracking() prevents accidental dependency tracking
- * 3. Extension hook runs — explicit watches via node.on() are captured
- * 4. resetTracking() restores tracking state
+ * Per I-SR.2:
+ * 1. getOrCreateScope returns the (per-node) NodeInstanceScope.
+ * 2. runSetupOnce wraps EffectScope.run() with Vue-style semantics
+ *    and idempotency per (scope, extensionId).
+ * 3. Hook ordering across extensions is preserved by passing each
+ *    extension's index in `nodeExtensions` as `registrationOrder`
+ *    (D10b: registration order, lex tie-break on extension name).
  */
 function mountExtensionsForNode(nodeId: NodeEntityId): void {
     const world = useWorld()
     const comfyClass = world.getComponent(nodeId, NodeType).comfyClass
     const isLoaded = world.hasComponent(nodeId, LoadedFromWorkflow)
 
-    for (const ext of nodeExtensions) {
+    const scope = scopeRegistry.getOrCreateScope(nodeId)
+
+    for (let i = 0; i < nodeExtensions.length; i++) {
+        const ext = nodeExtensions[i]
         if (ext.nodeTypes && !ext.nodeTypes.includes(comfyClass)) continue
 
         const hook = isLoaded ? ext.loadedGraphNode : ext.nodeCreated
         if (!hook) continue
 
-        const scope = getOrCreateScope(ext.name, nodeId)
-        scope.run(() => {
-            pauseTracking()
-            try {
-                hook(createNodeHandle(nodeId))
-            } finally {
-                resetTracking()
-            }
-        })
+        runSetupOnce(
+            scope,
+            ext.name,
+            () => hook(createNodeHandle(nodeId)),
+            { registrationOrder: i }
+        )
     }
 }
 
 /**
- * Unmount all extension scopes for a removed node entity.
- * scope.stop() disposes all watches, computed, and onScopeDispose
- * callbacks created during the extension's setup.
+ * Unmount the per-node scope for a removed node entity.
+ * disposeScope -> EffectScope.stop() cascades cleanup of every watch,
+ * computed, and onScopeDispose callback registered during setup of any
+ * extension on this node.
+ *
+ * Per the I-SR.2 brief, this is invoked ONLY on graph deletion. DOM
+ * moves and subgraph promotions preserve the entity id and therefore
+ * preserve the scope.
  */
 function unmountExtensionsForNode(nodeId: NodeEntityId): void {
-    for (const ext of nodeExtensions) {
-        stopScope(ext.name, nodeId)
-    }
+    scopeRegistry.disposeScope(nodeId)
 }
 
 /**
