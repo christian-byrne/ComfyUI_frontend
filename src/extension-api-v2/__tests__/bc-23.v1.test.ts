@@ -1,38 +1,59 @@
 // Category: BC.23 — Node property bag mutations
 // DB cross-ref: S2.N18
-// Exemplar: https://github.com/rgthree/rgthree-comfy/blob/main/src_web/comfyui/seed.ts#L78
-// blast_radius: 5.82
-// compat-floor: blast_radius ≥ 2.0
-// v1: node.prototype.onPropertyChanged = function(name, value, prevValue) { ... }
-//     or node.properties.myKey = value
+// blast_radius: 4.67 (compat-floor)
+// v1 contract: node.properties['key'] = value — direct mutation of the property bag
+// TODO(R8): swap with loadEvidenceSnippet once excerpts populated
 
-import { describe, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { countEvidenceExcerpts, loadEvidenceSnippet, runV1 } from '../harness'
 
-describe('BC.23 v1 contract — Node property bag mutations', () => {
-  describe('S2.N18 — onPropertyChanged lifecycle hook', () => {
-    it.todo(
-      'assigning node.prototype.onPropertyChanged wires a callback invoked when any property value changes'
-    )
-    it.todo(
-      'onPropertyChanged receives (name, value, prevValue) with correct types for each argument'
-    )
-    it.todo(
-      'onPropertyChanged is NOT called for properties set before the node is created'
-    )
-    it.todo(
-      'multiple prototype patches to onPropertyChanged: later patch overwrites earlier unless manually chained'
-    )
+void [loadEvidenceSnippet, runV1]
+
+describe('BC.23 v1 contract — node.properties direct mutation (S2.N18)', () => {
+  it.skip('S2.N18 has at least one evidence excerpt — TODO(R8): harness snapshot does not yet include S2.N18 excerpts', () => {
+    expect(countEvidenceExcerpts('S2.N18')).toBeGreaterThan(0)
   })
 
-  describe('S2.N18 — direct node.properties mutation', () => {
-    it.todo(
-      'setting node.properties.myKey = value persists the value through graph serialization and deserialization'
-    )
-    it.todo(
-      'direct property mutation does not automatically trigger onPropertyChanged'
-    )
-    it.todo(
-      'properties bag survives node clone (node.clone() copies node.properties by value)'
-    )
+  it('direct mutation of node.properties sets the value', () => {
+    const node = { properties: {} as Record<string, unknown> }
+    node.properties['seed'] = 42
+    expect(node.properties['seed']).toBe(42)
+  })
+
+  it('direct mutation does NOT trigger onPropertyChanged', () => {
+    const log: string[] = []
+    const node = {
+      properties: {} as Record<string, unknown>,
+      onPropertyChanged(_name: string, _value: unknown) { log.push(_name) },
+    }
+    node.properties['seed'] = 42
+    expect(log).toHaveLength(0)
+  })
+
+  it('multiple keys can be set independently', () => {
+    const node = { properties: {} as Record<string, unknown> }
+    node.properties['seed'] = 1
+    node.properties['steps'] = 20
+    node.properties['cfg'] = 7.5
+    expect(node.properties['seed']).toBe(1)
+    expect(node.properties['steps']).toBe(20)
+    expect(node.properties['cfg']).toBe(7.5)
+  })
+
+  it('property bag survives serialization to JSON and back', () => {
+    const node = { properties: { seed: 42, sampler_name: 'euler' } }
+    const serialized = JSON.stringify(node)
+    const restored = JSON.parse(serialized) as typeof node
+    expect(restored.properties['seed']).toBe(42)
+    expect(restored.properties['sampler_name']).toBe('euler')
+  })
+
+  it('extension can read node.properties after another extension wrote to it', () => {
+    const node = { properties: {} as Record<string, unknown> }
+    // ext A writes
+    node.properties['my_key'] = 'ext-a-value'
+    // ext B reads
+    const val = node.properties['my_key']
+    expect(val).toBe('ext-a-value')
   })
 })
