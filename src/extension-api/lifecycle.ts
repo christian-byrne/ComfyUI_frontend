@@ -125,6 +125,22 @@ export interface ExtensionOptions {
   name: string
 
   /**
+   * Declared API version of this extension. Used by the telemetry system to
+   * track v1 → v2 adoption (D6 Phase D gate: "<5% v1 usage before dropping
+   * the v1 bridge"). Set to `'2'` for extensions written against this API.
+   *
+   * Optional in Phase A (no runtime enforcement). The runtime reads this field
+   * via `getExtensionVersionReport()` to produce adoption metrics.
+   *
+   * @stability stable
+   * @example
+   * ```ts
+   * defineExtension({ name: 'my-ext', apiVersion: '2', setup() { … } })
+   * ```
+   */
+  apiVersion?: string
+
+  /**
    * Runs once during app initialization (after the app is mounted but before
    * the first workflow is loaded). Equivalent to the v1 `ComfyExtension.init`.
    *

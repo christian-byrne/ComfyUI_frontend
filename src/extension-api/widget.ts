@@ -361,6 +361,22 @@ export interface WidgetHandle<T = WidgetValue> {
    */
   readonly label: string
 
+  // ── HEIGHT — DOM widgets only ─────────────────────────────────────────────
+
+  /**
+   * Updates the reserved height for this DOM widget and triggers a node relayout.
+   *
+   * Only meaningful for widgets registered via `NodeHandle.addDOMWidget()`.
+   * For non-DOM widgets this is a no-op.
+   *
+   * Replaces the v1 pattern of re-assigning `node.computeSize` to return a new
+   * height whenever the embedded element resizes.
+   *
+   * @param px - New reserved height in pixels.
+   * @stability experimental
+   */
+  setHeight(px: number): void
+
   // ── SERIALIZATION OPT-OUT — first-class, every-widget ────────────────────
 
   /**
