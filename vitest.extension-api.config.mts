@@ -1,3 +1,4 @@
+import { resolve } from 'node:path'
 import { defineConfig } from 'vitest/config'
 
 /**
@@ -11,10 +12,26 @@ import { defineConfig } from 'vitest/config'
  * and src/extension-api-v2/ (the impl + test stubs).
  */
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, 'src')
+    }
+  },
   test: {
     globals: true,
     environment: 'happy-dom',
     setupFiles: ['./vitest.setup.ts'],
+    deps: {
+      // Force Vue packages through the browser ESM build so internal exports
+      // (pauseTracking, resetTracking) are available in the test environment.
+      // Without this, Vite uses the CJS/SSR build of Vue which does not re-export
+      // these @vue/reactivity internals.
+      optimizer: {
+        ssr: {
+          include: ['vue', '@vue/reactivity', '@vue/runtime-core', '@vue/runtime-dom']
+        }
+      }
+    },
     include: [
       'src/extension-api-v2/__tests__/**/*.{test,spec}.{ts,mts}'
     ],

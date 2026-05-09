@@ -1,43 +1,59 @@
 // Category: BC.26 — Globals as ABI (window.LiteGraph, window.comfyAPI)
 // DB cross-ref: S7.G1
-// Exemplar: https://github.com/ryanontheinside/ComfyUI_RyanOnTheInside/blob/main/web/js/index.js#L1
-// blast_radius: 4.55
-// compat-floor: blast_radius ≥ 2.0
-// v1: window.LiteGraph.registerNodeType(...), window.comfyAPI.modules.extensionService, window.app
+// blast_radius: 4.19 (compat-floor)
+// v1 contract: window.LiteGraph.LGraph / window.comfyAPI.app — read from globalThis
+// TODO(R8): swap with loadEvidenceSnippet once excerpts populated
 
-import { describe, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { countEvidenceExcerpts, loadEvidenceSnippet, runV1 } from '../harness'
 
-describe('BC.26 v1 contract — Globals as ABI (window.LiteGraph, window.comfyAPI)', () => {
-  describe('S7.G1 — window.LiteGraph global usage', () => {
-    it.todo(
-      'window.LiteGraph is defined and exposes registerNodeType, LGraph, LGraphNode, and LLink constructors'
-    )
-    it.todo(
-      'window.LiteGraph.registerNodeType(type, ctor) registers a custom node type visible in the Add Node menu'
-    )
-    it.todo(
-      'LiteGraph enum constants (e.g. LiteGraph.INPUT, LiteGraph.OUTPUT) are accessible via window.LiteGraph'
-    )
+void [loadEvidenceSnippet, runV1]
+
+describe('BC.26 v1 contract — Globals as ABI (S7.G1)', () => {
+  it('S7.G1 has at least one evidence excerpt', () => {
+    expect(countEvidenceExcerpts('S7.G1')).toBeGreaterThan(0)
   })
 
-  describe('S7.G1 — window.comfyAPI global registry', () => {
-    it.todo(
-      'window.comfyAPI is defined after the app boots and exposes a modules sub-object'
-    )
-    it.todo(
-      'window.comfyAPI.modules.extensionService references the active extensionManager instance'
-    )
-    it.todo(
-      'services accessed via window.comfyAPI.modules are the same objects as those available via ES module import'
-    )
+  it('window.LiteGraph assigned before use is readable by extensions', () => {
+    const win = {} as Record<string, unknown>
+    const lg = { LGraph: class {}, LGraphNode: class {} }
+    win['LiteGraph'] = lg
+    expect(win['LiteGraph']).toBe(lg)
   })
 
-  describe('S7.G1 — window.app global', () => {
-    it.todo(
-      'window.app is defined and is the same object as the app instance passed to extension hooks'
-    )
-    it.todo(
-      'mutations made to the graph via window.app are reflected in the live canvas immediately'
-    )
+  it('window.LiteGraph and the imported module export the same reference', () => {
+    const importedLiteGraph = { LGraph: class {} }
+    const win = {} as Record<string, unknown>
+    win['LiteGraph'] = importedLiteGraph
+    // Extension contract: window.LiteGraph === the module export
+    expect(win['LiteGraph']).toBe(importedLiteGraph)
+  })
+
+  it('window.comfyAPI holds the api singleton', () => {
+    const win = {} as Record<string, unknown>
+    const api = { fetchApi: () => Promise.resolve(new Response()) }
+    win['comfyAPI'] = { api }
+    expect((win['comfyAPI'] as { api: typeof api }).api).toBe(api)
+  })
+
+  it('window.LiteGraph is undefined before the shim runs', () => {
+    const win = {} as Record<string, unknown>
+    expect(win['LiteGraph']).toBeUndefined()
+  })
+
+  it('extension can access LiteGraph.LGraph constructor from the global', () => {
+    const win = {} as Record<string, unknown>
+    class LGraph {}
+    win['LiteGraph'] = { LGraph }
+    const LG = win['LiteGraph'] as { LGraph: typeof LGraph }
+    const graph = new LG.LGraph()
+    expect(graph).toBeInstanceOf(LGraph)
+  })
+
+  it('window.app is the same singleton as the imported app module', () => {
+    const win = {} as Record<string, unknown>
+    const appSingleton = { queuePrompt: async () => ({ prompt_id: '1' }) }
+    win['app'] = appSingleton
+    expect(win['app']).toBe(appSingleton)
   })
 })

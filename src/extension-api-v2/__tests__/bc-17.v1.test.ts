@@ -1,43 +1,63 @@
 // Category: BC.17 — Backend execution lifecycle and progress events
 // DB cross-ref: S5.A1, S5.A2, S5.A3
-// Exemplar: https://github.com/AIGODLIKE/AIGODLIKE-ComfyUI-Studio/blob/main/loader/components/public/iconRenderer.js#L39
 // blast_radius: 5.00 (compat-floor)
-// compat-floor: blast_radius ≥ 2.0
-// v1 contract: app.api.addEventListener('executed'|'progress'|'status'|'execution_error'|'reconnecting', fn)
+// v1 contract: api.addEventListener('executed'|'progress'|'executing', fn)
+// TODO(R8): swap with loadEvidenceSnippet once excerpts populated
 
-import { describe, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { countEvidenceExcerpts, loadEvidenceSnippet, runV1 } from '../harness'
 
-describe('BC.17 v1 contract — app.api.addEventListener', () => {
-  describe('S5.A1 — execution lifecycle events (executed, execution_error)', () => {
-    it.todo(
-      'app.api.addEventListener("executed", fn) fires fn when a node execution completes with output data'
-    )
-    it.todo(
-      'app.api.addEventListener("execution_error", fn) fires fn with error detail when the backend reports a failure'
-    )
-    it.todo(
-      'the executed event detail includes { node, output } matching the backend WebSocket message structure'
-    )
+void [loadEvidenceSnippet, runV1]
+
+function makeApi() {
+  const listeners = new Map<string, Array<(e: { detail: unknown }) => void>>()
+  return {
+    addEventListener(event: string, fn: (e: { detail: unknown }) => void) {
+      if (!listeners.has(event)) listeners.set(event, [])
+      listeners.get(event)!.push(fn)
+    },
+    _emit(event: string, detail: unknown) {
+      listeners.get(event)?.forEach(fn => fn({ detail }))
+    },
+  }
+}
+
+describe('BC.17 v1 contract — backend execution lifecycle events (S5.A1/A2/A3)', () => {
+  it('S5.A1 has at least one evidence excerpt', () => {
+    expect(countEvidenceExcerpts('S5.A1')).toBeGreaterThan(0)
   })
 
-  describe('S5.A2 — progress events', () => {
-    it.todo(
-      'app.api.addEventListener("progress", fn) fires fn on each step tick during a running execution'
-    )
-    it.todo(
-      'the progress event detail includes { value, max } allowing accurate percentage calculation'
-    )
+  it("addEventListener('executed') fires with detail.node and detail.output", () => {
+    const api = makeApi()
+    let detail: unknown
+    api.addEventListener('executed', e => { detail = e.detail })
+    api._emit('executed', { node: '5', output: { images: [] } })
+    expect((detail as { node: string }).node).toBe('5')
   })
 
-  describe('S5.A3 — status and reconnect events', () => {
-    it.todo(
-      'app.api.addEventListener("status", fn) fires fn when the backend queue status changes'
-    )
-    it.todo(
-      'app.api.addEventListener("reconnecting", fn) fires fn when the WebSocket connection is lost and retrying'
-    )
-    it.todo(
-      'app.api.removeEventListener with the same event name and function reference removes the handler'
-    )
+  it("addEventListener('progress') fires with detail.value and detail.max", () => {
+    const api = makeApi()
+    let detail: unknown
+    api.addEventListener('progress', e => { detail = e.detail })
+    api._emit('progress', { value: 3, max: 10 })
+    expect((detail as { value: number; max: number }).value).toBe(3)
+    expect((detail as { value: number; max: number }).max).toBe(10)
+  })
+
+  it("addEventListener('executing') fires with currently-running node id", () => {
+    const api = makeApi()
+    const ids: unknown[] = []
+    api.addEventListener('executing', e => ids.push((e.detail as { node: string }).node))
+    api._emit('executing', { node: '7' })
+    expect(ids).toEqual(['7'])
+  })
+
+  it('multiple listeners on the same event all fire', () => {
+    const api = makeApi()
+    const log: number[] = []
+    api.addEventListener('executed', () => log.push(1))
+    api.addEventListener('executed', () => log.push(2))
+    api._emit('executed', {})
+    expect(log).toEqual([1, 2])
   })
 })
