@@ -172,7 +172,7 @@ This project uses **pnpm**. Always prefer scripts defined in `package.json` (e.g
 16. Whenever a new piece of code is written, the author should ask themselves 'is there a simpler way to introduce the same functionality?'. If the answer is yes, the simpler course should be chosen
 17. [Refactoring](https://refactoring.com/catalog/) should be used to make complex code simpler
 18. Try to minimize the surface area (exported values) of each module and composable
-19. Don't use barrel files, e.g. `/some/package/index.ts` to re-export within `/src`
+19. Don't use barrel files, e.g. `/some/package/index.ts` to re-export within `/src`. **Exception**: `src/extension-api/index.ts` is the published npm package entry point (`@comfyorg/extension-api`) and is explicitly exempt from this rule.
 20. Keep functions short and functional
 21. Minimize [nesting](https://wiki.c2.com/?ArrowAntiPattern), e.g. `if () { ... }` or `for () { ... }`
 22. Avoid mutable state, prefer immutability and assignment at point of declaration

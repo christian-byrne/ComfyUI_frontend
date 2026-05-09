@@ -76,6 +76,7 @@ export type {
   NodeMode,
   Point,
   Size,
+  DOMWidgetOptions,
   NodeExecutedEvent,
   NodeConnectedEvent,
   NodeDisconnectedEvent,
