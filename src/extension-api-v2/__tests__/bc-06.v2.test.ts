@@ -28,13 +28,15 @@ describe('BC.06 v2 contract — custom canvas drawing (per-node and canvas-level
   })
 
   describe('canvas-level overrides — deferred (S3.C1, S3.C2)', () => {
-    it.todo(
+    // COM-3668: Simon Tranter vetoed canvas-draw testing — no headless canvas renderer available.
+    // Canvas-level prototype override testing deferred post-D9 Phase C.
+    it.skip(
       '[D9 Phase C] v2 exposes no stable API for replacing LGraphCanvas.prototype.drawNodeShape — extensions using this pattern must remain on v1 shim'
     )
-    it.todo(
+    it.skip(
       '[D9 Phase C] v2 exposes no stable API for replacing processContextMenu — context-menu customization is deferred to the ComfyUI menu extension point'
     )
-    it.todo(
+    it.skip(
       '[D9 Phase C] blast-radius tracking: S3.C1 and S3.C2 overrides coexist with v2 per-node drawing without mutual interference'
     )
   })

@@ -30,10 +30,12 @@ describe('BC.06 migration — custom canvas drawing (per-node and canvas-level)'
   })
 
   describe('canvas-level override coexistence (S3.C1, S3.C2)', () => {
-    it.todo(
+    // COM-3668: Simon Tranter vetoed canvas-draw testing — no headless canvas renderer available.
+    // Canvas-level prototype override testing deferred post-D9 Phase C.
+    it.skip(
       'extensions that replace LGraphCanvas.prototype methods in v1 continue to function alongside v2 NodeHandle.onDraw registrations without conflict'
     )
-    it.todo(
+    it.skip(
       'processContextMenu replacement in v1 is not disrupted by extensions migrated to v2 per-node APIs'
     )
   })

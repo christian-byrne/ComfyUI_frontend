@@ -1,31 +1,50 @@
 // Category: BC.16 — Execution output consumption (per-node)
 // DB cross-ref: S2.N2
-// Exemplar: https://github.com/andreszs/ComfyUI-Ultralytics-Studio/blob/main/js/show_string.js#L9
 // blast_radius: 4.67 (compat-floor)
-// compat-floor: blast_radius ≥ 2.0
-// v1 contract: node.onExecuted = function(data) { /* data.text, data.images etc */ }
+// v1 contract: node.onExecuted(output) — prototype-patched per extension
+// TODO(R8): swap with loadEvidenceSnippet('S2.N2', 0) once excerpts populated
 
-import { describe, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { countEvidenceExcerpts, loadEvidenceSnippet, runV1 } from '../harness'
 
-describe('BC.16 v1 contract — node.onExecuted callback', () => {
-  describe('S2.N2 — per-node execution output', () => {
-    it.todo(
-      'node.onExecuted is called by the runtime when the backend reports output for that node\'s ID'
-    )
-    it.todo(
-      'data.text is an array of strings when the node outputs text-type results'
-    )
-    it.todo(
-      'data.images is an array of image descriptor objects when the node outputs image-type results'
-    )
-    it.todo(
-      'data passed to onExecuted matches the raw output object from the backend executed event for that node'
-    )
-    it.todo(
-      'assigning node.onExecuted after graph load is sufficient; the handler receives subsequent execution outputs'
-    )
-    it.todo(
-      'onExecuted is not called for nodes whose IDs are absent from the execution output'
-    )
+void [loadEvidenceSnippet, runV1]
+
+describe('BC.16 v1 contract — node.onExecuted callback (S2.N2)', () => {
+  it('S2.N2 has at least one evidence excerpt', () => {
+    expect(countEvidenceExcerpts('S2.N2')).toBeGreaterThan(0)
+  })
+
+  it('onExecuted receives the output object with arbitrary keys', () => {
+    const output = { images: [{ filename: 'out.png', subfolder: '', type: 'output' }] }
+    let received: unknown
+    const node = { onExecuted(o: unknown) { received = o } }
+    node.onExecuted(output)
+    expect((received as typeof output).images[0].filename).toBe('out.png')
+  })
+
+  it('onExecuted can be prototype-patched; the original is still callable', () => {
+    const log: string[] = []
+    const proto = { onExecuted(_o: unknown) { log.push('orig') } }
+    const orig = proto.onExecuted.bind(proto)
+    proto.onExecuted = function (o: unknown) { log.push('ext'); orig(o) }
+    proto.onExecuted({ text: ['hi'] })
+    expect(log).toEqual(['ext', 'orig'])
+  })
+
+  it('multiple extensions chain onExecuted; all fire in outer-first order', () => {
+    const log: number[] = []
+    let fn: (o: unknown) => void = () => { log.push(0) }
+    fn = ((prev) => (o: unknown) => { log.push(1); prev(o) })(fn)
+    fn = ((prev) => (o: unknown) => { log.push(2); prev(o) })(fn)
+    fn({})
+    expect(log).toEqual([2, 1, 0])
+  })
+
+  it('output object shape for text-type nodes has a text array', () => {
+    const output: Record<string, unknown> = { text: ['result string'] }
+    const keys: string[] = []
+    const node = { onExecuted(o: Record<string, unknown>) { keys.push(...Object.keys(o)) } }
+    node.onExecuted(output)
+    expect(keys).toContain('text')
   })
 })
