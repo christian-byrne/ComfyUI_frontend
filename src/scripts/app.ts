@@ -59,6 +59,10 @@ import {
 } from '@/scripts/domWidget'
 import { useDialogService } from '@/services/dialogService'
 import { useExtensionService } from '@/services/extensionService'
+import {
+  invokeV2AppExtensions,
+  startExtensionSystem
+} from '@/services/extension-api-service'
 import { useLitegraphService } from '@/services/litegraphService'
 import { useSubgraphService } from '@/services/subgraphService'
 import { useApiKeyAuthStore } from '@/stores/apiKeyAuthStore'
@@ -96,7 +100,7 @@ import { useMissingMediaStore } from '@/platform/missingMedia/missingMediaStore'
 import type { MissingMediaCandidate } from '@/platform/missingMedia/types'
 import {
   scanAllMediaCandidates,
-  verifyCloudMediaCandidates
+  verifyMediaCandidates
 } from '@/platform/missingMedia/missingMediaScan'
 
 import { anyItemOverlapsRect } from '@/utils/mathUtil'
@@ -855,6 +859,10 @@ export class ComfyApp {
     //Doesn't need to block. Blueprints will load async
     void useSubgraphStore().fetchSubgraphs()
     await useExtensionService().loadExtensions()
+    // Start the v2 node-extension reactive mount watcher (I-SR.3 / MIG1.E5).
+    // Must run after loadExtensions() so all defineNodeExtension() calls have
+    // pushed into nodeExtensions[] before the first watcher tick.
+    startExtensionSystem()
 
     this.addProcessKeyHandler()
     this.addConfigureHandler()
@@ -949,11 +957,13 @@ export class ComfyApp {
     })
 
     await useExtensionService().invokeExtensionsAsync('init')
+    await invokeV2AppExtensions('init')
     await this.registerNodes()
 
     this.addDropHandler()
 
     await useExtensionService().invokeExtensionsAsync('setup')
+    await invokeV2AppExtensions('setup')
 
     this.positionConversion = useCanvasPositionConversion(
       this.canvasContainer,
@@ -1508,9 +1518,13 @@ export class ComfyApp {
       return
     }
 
-    if (isCloud) {
+    const pending = candidates.some((c) => c.isMissing === undefined)
+    if (pending) {
       const controller = missingMediaStore.createVerificationAbortController()
-      void verifyCloudMediaCandidates(candidates, controller.signal)
+      void verifyMediaCandidates(candidates, {
+        isCloud,
+        signal: controller.signal
+      })
         .then(() => {
           if (controller.signal.aborted) return
           // Re-check ancestor after async verification (see model pipeline).
