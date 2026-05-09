@@ -5,7 +5,7 @@
  * v2: 12 lines, uses NodeHandle — type filtering via nodeTypes option
  */
 
-import { defineNodeExtension } from '@/services/extensionV2Service'
+import { defineNodeExtension } from '@/extension-api'
 
 defineNodeExtension({
   name: 'Comfy.ImageCrop.V2',

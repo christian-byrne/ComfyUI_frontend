@@ -5,7 +5,7 @@
  * v2: same logic, uses WidgetHandle instead of raw widget
  */
 
-import { defineNodeExtension } from '@/services/extensionV2Service'
+import { defineNodeExtension } from '@/extension-api'
 import { processDynamicPrompt } from '@/utils/formatUtil'
 
 defineNodeExtension({
@@ -13,12 +13,14 @@ defineNodeExtension({
 
   nodeCreated(node) {
     for (const widget of node.widgets()) {
-      if (widget.getOptions().dynamicPrompts) {
-        widget.setSerializeValue((_workflowNode, _widgetIndex) => {
-          const value = widget.getValue<string>()
-          return typeof value === 'string'
-            ? processDynamicPrompt(value)
-            : value
+      if (widget.getOption('dynamicPrompts')) {
+        widget.on('beforeSerialize', (e) => {
+          if (e.context === 'prompt') {
+            const value = widget.getValue<string>()
+            e.setSerializedValue(
+              typeof value === 'string' ? processDynamicPrompt(value) : value
+            )
+          }
         })
       }
     }

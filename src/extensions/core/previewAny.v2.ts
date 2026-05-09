@@ -8,7 +8,7 @@
  * v2: 35 lines, no prototype access, no manual chaining
  */
 
-import { defineNodeExtension } from '@/services/extensionV2Service'
+import { defineNodeExtension } from '@/extension-api'
 
 defineNodeExtension({
   name: 'Comfy.PreviewAny.V2',
@@ -18,29 +18,29 @@ defineNodeExtension({
     const markdown = node.addWidget('MARKDOWN', 'preview_markdown', '', {
       hidden: true,
       readonly: true,
-      serialize: false
+      serialize: false,
+      label: 'Preview'
     })
-    markdown.setLabel('Preview')
 
     const plaintext = node.addWidget('STRING', 'preview_text', '', {
       multiline: true,
       readonly: true,
-      serialize: false
+      serialize: false,
+      label: 'Preview'
     })
-    plaintext.setLabel('Preview')
 
     const toggle = node.addWidget('BOOLEAN', 'previewMode', false, {
       labelOn: 'Markdown',
       labelOff: 'Plaintext'
     })
 
-    toggle.on('change', (value) => {
-      markdown.setHidden(!value)
-      plaintext.setHidden(value as boolean)
+    toggle.on('valueChange', (e) => {
+      markdown.setHidden(!e.newValue)
+      plaintext.setHidden(e.newValue as boolean)
     })
 
-    node.on('executed', (output) => {
-      const text = (output.text as string | string[]) ?? ''
+    node.on('executed', (e) => {
+      const text = (e.output['text'] as string | string[]) ?? ''
       const content = Array.isArray(text) ? text.join('\n\n') : text
       markdown.setValue(content)
       plaintext.setValue(content)
