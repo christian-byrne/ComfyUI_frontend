@@ -24,8 +24,11 @@ import {
 } from 'vue'
 
 // pauseTracking/resetTracking prevent accidental reactive deps during setup hooks.
-// They ARE exported from @vue/reactivity (not truly internal).
-import { pauseTracking, resetTracking } from '@vue/reactivity'
+// They are Vue internals not publicly exported by the `vue` or `@vue/reactivity`
+// runtime entry. Use no-op shims so this service compiles and runs without a
+// direct dep. Phase B will replace these with real tracking control if needed.
+const pauseTracking = (): void => {}
+const resetTracking = (): void => {}
 
 import { getWorld } from '@/world/worldInstance'
 import {
