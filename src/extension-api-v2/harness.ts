@@ -1,19 +1,16 @@
 /**
- * Test harness for v1/v2 extension compatibility tests.
- * Provides minimal World + MiniGraph + MiniComfyApp stubs for proof-of-concept tests.
+ * Test harness stubs for v1 contract tests.
  *
- * Phase A limitation: These are minimal stubs. Phase B will provide a full
- * eval sandbox + LiteGraph prototype wiring for real behavioral tests.
+ * Phase A limitation: These are minimal stubs to make tests compile.
+ * Real implementations land with Phase B (ECS substrate + eval sandbox).
  */
 
-type NodeEntityId = string
+import type { NodeEntityId } from '@/world/entityIds'
 
 interface HarnessWorld {
   findNode(id: NodeEntityId): { type: string } | undefined
-  allNodes(): NodeEntityId[]
+  allNodes(): { type: string }[]
   clear(): void
-  _addNode(id: NodeEntityId, data: { type: string }): void
-  _removeNode(id: NodeEntityId): void
 }
 
 interface MiniGraph {
@@ -25,69 +22,51 @@ interface MiniComfyApp {
   graph: MiniGraph
 }
 
-/**
- * Creates a minimal harness World for testing.
- */
-export function createHarnessWorld(): HarnessWorld {
-  const nodes = new Map<NodeEntityId, { type: string }>()
+const nodes = new Map<NodeEntityId, { type: string }>()
+let nodeCounter = 0
 
+export function createHarnessWorld(): HarnessWorld {
+  nodes.clear()
+  nodeCounter = 0
   return {
     findNode(id: NodeEntityId) {
       return nodes.get(id)
     },
     allNodes() {
-      return [...nodes.keys()]
+      return [...nodes.values()]
     },
     clear() {
       nodes.clear()
-    },
-    _addNode(id: NodeEntityId, data: { type: string }) {
-      nodes.set(id, data)
-    },
-    _removeNode(id: NodeEntityId) {
-      nodes.delete(id)
     }
   }
 }
 
-/**
- * Creates a minimal MiniComfyApp for testing.
- * The app's graph operations are wired to the provided world.
- */
-export function createMiniComfyApp(world: HarnessWorld): MiniComfyApp {
-  let idCounter = 0
-
+export function createMiniComfyApp(_world: HarnessWorld): MiniComfyApp {
   return {
     graph: {
       add(opts: { type: string }): NodeEntityId {
-        const id = `node:${++idCounter}` as NodeEntityId
-        world._addNode(id, { type: opts.type })
+        const id = (++nodeCounter) as unknown as NodeEntityId
+        nodes.set(id, { type: opts.type })
         return id
       },
-      remove(id: NodeEntityId) {
-        world._removeNode(id)
+      remove(id: NodeEntityId): void {
+        nodes.delete(id)
       }
     }
   }
 }
 
-// Evidence snapshot loading stubs for S2.* surface coverage
-const evidenceSnapshots: Record<string, string[]> = {
+// Evidence snippet loading — stubs for I-TF.3.C3 POC
+const evidenceSnippets: Record<string, string[]> = {
   'S2.N4': [
-    '// LTXVideo sparse_track_editor.js:137\nnode.onRemoved = function() { cleanup(); }'
+    'node.onRemoved = function() { clearInterval(this._interval); this._element?.remove(); }'
   ]
 }
 
-/**
- * Returns the number of evidence excerpts for a given surface ID.
- */
 export function countEvidenceExcerpts(surfaceId: string): number {
-  return evidenceSnapshots[surfaceId]?.length ?? 0
+  return evidenceSnippets[surfaceId]?.length ?? 0
 }
 
-/**
- * Loads a specific evidence snippet by surface ID and index.
- */
 export function loadEvidenceSnippet(surfaceId: string, index: number): string {
-  return evidenceSnapshots[surfaceId]?.[index] ?? ''
+  return evidenceSnippets[surfaceId]?.[index] ?? ''
 }

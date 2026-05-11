@@ -57,11 +57,12 @@ import {
 import type { IContextMenuValue } from '@/lib/litegraph/src/litegraph'
 import type { ISlotType } from '@/lib/litegraph/src/interfaces'
 import { getWidgetConfig, mergeIfValid, setWidgetConfig } from './widgetInputs'
-import { defineExtension, defineNodeExtension } from '@/extension-api'
+import { defineExtension } from '@/extension-api'
 
 // ── GAP-1: Interim bridge — LiteGraph node type registration ─────────────────
 
 function registerRerouteType() {
+  // Declaration-merging interface so the class gains `__outputType`.
   interface RerouteNode extends LGraphNode {
     __outputType?: string | number
   }
@@ -339,15 +340,3 @@ defineExtension({
 //
 // That path requires the connected/disconnected events to be synchronous
 // and to carry a mutable output descriptor — a non-trivial API contract.
-
-defineNodeExtension({
-  name: 'Comfy.RerouteNode.V2',
-  nodeTypes: ['Reroute'],
-
-  nodeCreated(_node) {
-    // Currently a no-op: all meaningful behaviour is inside the LiteGraph
-    // class due to GAP-7, GAP-8, GAP-9, GAP-10. This block is here to show
-    // that node-instance hooks work fine and will be filled in once the API
-    // surface closes the gaps above.
-  }
-})
