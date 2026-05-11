@@ -95,7 +95,11 @@ const SlotIdentityKey = defineComponentKey<SlotIdentityData, WidgetEntityId>('Sl
 // _dispatchImpl is reassignable for testing. Do not use outside tests.
 let _dispatchImpl: ((cmd: Record<string, unknown>) => unknown) | null = null
 
-/** @internal Test-only: override dispatch implementation. Pass null to restore the stub. */
+/**
+ * @internal
+ * Test-only: override dispatch implementation. Pass null to restore the stub.
+ * DO NOT use in extensions — this is an internal testing hook.
+ */
 export function _setDispatchImplForTesting(
   impl: ((cmd: Record<string, unknown>) => unknown) | null
 ): void {
@@ -250,6 +254,9 @@ function createWidgetHandle(widgetId: WidgetEntityId): WidgetHandle {
         dispatch({ type: 'RegisterWidgetQueueValidator', widgetId, validator: fn })
         return () => dispatch({ type: 'UnregisterWidgetQueueValidator', widgetId, validator: fn })
       }
+      if (import.meta.env.DEV) {
+        console.warn(`[extension-api] Unknown widget event: "${event}"`)
+      }
       return () => {}
     }) as WidgetHandle['on']
   }
@@ -271,10 +278,10 @@ function createNodeHandle(nodeId: NodeEntityId): NodeHandle {
     },
 
     getPosition(): Point {
-      return world.getComponent(nodeId, PositionKey)?.pos ?? { x: 0, y: 0 }
+      return world.getComponent(nodeId, PositionKey)?.pos ?? [0, 0]
     },
     getSize(): Size {
-      return world.getComponent(nodeId, DimensionsKey)?.size ?? { width: 0, height: 0 }
+      return world.getComponent(nodeId, DimensionsKey)?.size ?? [0, 0]
     },
     getTitle() {
       return world.getComponent(nodeId, NodeVisualKey)?.title ?? ''
@@ -414,6 +421,9 @@ function createNodeHandle(nodeId: NodeEntityId): NodeHandle {
         onScopeDispose(() => fn())
         return () => {} // cleanup handled by scope.stop()
       }
+      if (import.meta.env.DEV) {
+        console.warn(`[extension-api] Unknown node event: "${event}"`)
+      }
       return () => {}
     }) as NodeHandle['on']
   }
@@ -448,7 +458,8 @@ export function onNodeMounted(fn: () => void): void {
   }
   // Post-flush once-watcher: fires after the current synchronous setup chain,
   // still inside the active EffectScope so it is automatically cleaned up.
-  watch(() => null, fn, { flush: 'post', once: true })
+  // immediate: true ensures the callback fires even with no reactive deps.
+  watch(() => null, fn, { flush: 'post', once: true, immediate: true })
 }
 
 /**
@@ -487,11 +498,12 @@ export function defineWidgetExtension(options: WidgetExtensionOptions): void {
   widgetExtensions.push(options)
 }
 
-/** @internal Test-only: clear all registered extensions. */
+/** @internal Test-only: clear all registered extensions and reset state. */
 export function _clearExtensionsForTesting(): void {
   nodeExtensions.length = 0
   appExtensions.length = 0
   widgetExtensions.length = 0
+  _extensionSystemStarted = false
 }
 
 // ─── Mount / Unmount ─────────────────────────────────────────────────────────
@@ -542,6 +554,13 @@ export function mountExtensionsForNode(nodeEntityId: NodeEntityId): void {
       try {
         const result = hook(createNodeHandle(nodeEntityId))
         if (result instanceof Promise) {
+          // Async setup is not supported (D10c) — catch to prevent unhandled rejection
+          result.catch((err) => {
+            console.error(
+              `[extension-api] Async error in extension "${ext.name}" setup:`,
+              err
+            )
+          })
           if (import.meta.env.DEV) {
             throw new Error(
               `[extension-api] Extension "${ext.name}" returned a Promise from setup. ` +
@@ -590,8 +609,20 @@ export function getScopeRegistry(): ReadonlyMap<string, Readonly<NodeInstanceSco
 // The World's component buckets are reactive(Map), so this watch fires
 // whenever NodeType entities are added or removed — no imperative dispatch
 // needed. See scope-registry-spike.md §3 and decisions/D3.5.
+// TODO(D8): World reactivity is not yet wired — this watch won't fire in
+// Phase A. The design for reactive World (D8) is still unresolved.
+
+let _extensionSystemStarted = false
 
 export function startExtensionSystem(): void {
+  if (_extensionSystemStarted) {
+    if (import.meta.env.DEV) {
+      console.warn('[extension-api] startExtensionSystem() called multiple times')
+    }
+    return
+  }
+  _extensionSystemStarted = true
+
   const world = getWorld()
 
   watch(

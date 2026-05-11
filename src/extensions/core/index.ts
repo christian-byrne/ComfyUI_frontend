@@ -21,18 +21,15 @@ if (!isCloud) {
   await import('./nodeTemplates')
 }
 import './noteNode'
-import './noteNode.v2'
 import './painter'
 import './previewAny'
 import './previewAny.v2'
 import './rerouteNode'
-import './rerouteNode.v2'
 import './saveImageExtraOutput'
 // saveMesh is loaded on-demand with load3d (see load3dLazy.ts)
 import './selectionBorder'
 import './simpleTouchSupport'
 import './slotDefaults'
-import './slotDefaults.v2'
 import './uploadAudio'
 import './uploadImage'
 import './webcamCapture'
