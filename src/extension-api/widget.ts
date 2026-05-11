@@ -21,11 +21,13 @@ import type { AsyncHandler, Handler, Unsubscribe } from './events'
 
 /**
  * Branded entity ID for widgets. Prevents mixing widget IDs with node IDs
- * at compile time. The underlying value is always `number`.
+ * at compile time. Re-exported from the world layer so the entire codebase
+ * shares a single brand. The underlying value is `string` in Phase A.
  *
  * @stability stable
  */
-export type WidgetEntityId = number & { readonly __brand: 'WidgetEntityId' }
+import type { WidgetEntityId } from '@/world/entityIds'
+export type { WidgetEntityId }
 
 // ─── Widget value ────────────────────────────────────────────────────────────
 

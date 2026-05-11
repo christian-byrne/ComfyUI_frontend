@@ -16,7 +16,7 @@ defineNodeExtension({
       if (widget.getOption('dynamicPrompts')) {
         widget.on('beforeSerialize', (e) => {
           if (e.context === 'prompt') {
-            const value = widget.getValue<string>()
+            const value = widget.getValue() as string
             e.setSerializedValue(
               typeof value === 'string' ? processDynamicPrompt(value) : value
             )

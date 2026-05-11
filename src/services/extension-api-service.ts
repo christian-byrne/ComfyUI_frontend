@@ -42,6 +42,7 @@ import { defineComponentKey } from '@/world/componentKey'
 
 import type {
   NodeHandle,
+  NodeMode,
   SlotInfo,
   SlotEntityId as PublicSlotEntityId,
   Point,
@@ -287,7 +288,7 @@ function createNodeHandle(nodeId: NodeEntityId): NodeHandle {
       return world.getComponent(nodeId, NodeVisualKey)?.title ?? ''
     },
     getMode() {
-      return world.getComponent(nodeId, ExecutionKey)?.mode ?? 0
+      return (world.getComponent(nodeId, ExecutionKey)?.mode ?? 0) as NodeMode
     },
 
     getProperty<T = unknown>(key: string): T | undefined {
@@ -552,7 +553,7 @@ export function mountExtensionsForNode(nodeEntityId: NodeEntityId): void {
       _currentScope = record
       pauseTracking()
       try {
-        const result = hook(createNodeHandle(nodeEntityId))
+        const result: unknown = hook(createNodeHandle(nodeEntityId))
         if (result instanceof Promise) {
           // Async setup is not supported (D10c) — catch to prevent unhandled rejection
           result.catch((err) => {

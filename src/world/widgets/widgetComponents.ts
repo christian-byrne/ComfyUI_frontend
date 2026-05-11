@@ -2,9 +2,29 @@
 // Tests mock this module via vi.mock('@/world/widgets/widgetComponents').
 
 import { defineComponentKey } from '../componentKey'
+import type { NodeEntityId, WidgetEntityId } from '../entityIds'
 
-export const WidgetComponentContainer = defineComponentKey<object, unknown>('WidgetComponentContainer')
-export const WidgetComponentDisplay = defineComponentKey<object, unknown>('WidgetComponentDisplay')
-export const WidgetComponentSchema = defineComponentKey<object, unknown>('WidgetComponentSchema')
-export const WidgetComponentSerialize = defineComponentKey<object, unknown>('WidgetComponentSerialize')
-export const WidgetComponentValue = defineComponentKey<object, unknown>('WidgetComponentValue')
+interface WidgetContainerData {
+  widgetIds: WidgetEntityId[]
+}
+interface WidgetDisplayData {
+  label?: string
+  hidden?: boolean
+  disabled?: boolean
+}
+interface WidgetSchemaData {
+  type?: string
+  options?: Record<string, unknown>
+}
+interface WidgetSerializeData {
+  serialize?: boolean
+}
+interface WidgetValueData {
+  value?: unknown
+}
+
+export const WidgetComponentContainer = defineComponentKey<WidgetContainerData, NodeEntityId>('WidgetComponentContainer')
+export const WidgetComponentDisplay = defineComponentKey<WidgetDisplayData, WidgetEntityId>('WidgetComponentDisplay')
+export const WidgetComponentSchema = defineComponentKey<WidgetSchemaData, WidgetEntityId>('WidgetComponentSchema')
+export const WidgetComponentSerialize = defineComponentKey<WidgetSerializeData, WidgetEntityId>('WidgetComponentSerialize')
+export const WidgetComponentValue = defineComponentKey<WidgetValueData, WidgetEntityId>('WidgetComponentValue')

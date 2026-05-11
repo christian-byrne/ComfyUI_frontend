@@ -23,11 +23,14 @@ import type { WidgetHandle, WidgetOptions } from './widget'
 
 /**
  * Branded entity ID for nodes. Prevents mixing node IDs with widget IDs
- * at compile time. The underlying value is always `number`.
+ * at compile time. Re-exported from the world layer so the entire codebase
+ * shares a single brand. The underlying value is `string` in Phase A
+ * (e.g. `node:<graphUuid>:<localId>`).
  *
  * @stability stable
  */
-export type NodeEntityId = number & { readonly __brand: 'NodeEntityId' }
+import type { NodeEntityId } from '@/world/entityIds'
+export type { NodeEntityId }
 
 // ─── Geometry ────────────────────────────────────────────────────────────────
 
