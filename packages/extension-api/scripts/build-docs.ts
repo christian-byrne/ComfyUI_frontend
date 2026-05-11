@@ -363,16 +363,7 @@ interface NavPage {
 }
 
 function buildNavSnippet(stems: string[]): NavPage {
-  const byGroup: Record<string, string[]> = {}
-
-  for (const stem of stems) {
-    const meta = metaFor(stem)
-    const group = meta.group
-    if (!byGroup[group]) byGroup[group] = []
-    byGroup[group].push(`extensions/api/${slug(stem)}`)
-  }
-
-  // Sort each group by order
+  // Sort stems by order then group by category
   const sortedStems = stems.slice().sort((a, b) => metaFor(a).order - metaFor(b).order)
   const sortedByGroup: Record<string, string[]> = {}
   for (const stem of sortedStems) {
@@ -405,7 +396,7 @@ function buildNavSnippet(stems: string[]): NavPage {
 function runTypedoc(): void {
   console.log('▶ Running TypeDoc...')
   execSync(
-    `npx typedoc --options ${path.join(pkgRoot, 'typedoc.json')} --out ${rawDir}`,
+    `pnpm exec typedoc --options ${path.join(pkgRoot, 'typedoc.json')} --out ${rawDir}`,
     { cwd: pkgRoot, stdio: 'inherit' }
   )
 }

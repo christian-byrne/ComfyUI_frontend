@@ -24,10 +24,8 @@ import {
 } from 'vue'
 
 // pauseTracking/resetTracking prevent accidental reactive deps during setup hooks.
-// They are Vue internals not publicly exported. Use no-op shims so this service
-// compiles and runs without a direct @vue/reactivity dep.
-const pauseTracking = (): void => {}
-const resetTracking = (): void => {}
+// They ARE exported from @vue/reactivity (not truly internal).
+import { pauseTracking, resetTracking } from '@vue/reactivity'
 
 import { getWorld } from '@/world/worldInstance'
 import {
@@ -70,8 +68,8 @@ interface NodeTypeData {
   properties?: Record<string, unknown>
 }
 interface LoadedFromWorkflowData { _tag: 'LoadedFromWorkflow' }
-interface PositionData { pos: Point }
-interface DimensionsData { size: Size }
+interface PositionData { pos: [number, number] }
+interface DimensionsData { size: [number, number] }
 interface NodeVisualData { title: string; selected?: boolean }
 interface ExecutionData { mode: number }
 type SlotEntityId = string & { __brand: 'SlotEntityId' }
@@ -247,18 +245,27 @@ function createWidgetHandle(widgetId: WidgetEntityId): WidgetHandle {
         )
       } else if (event === 'optionChange' || event === 'propertyChange') {
         // TODO(#11939): wire through ECS event bus when available
+        if (import.meta.env.DEV) {
+          console.warn(`[extension-api] widget.on("${event}") is not yet wired — Phase B`)
+        }
         dispatch({ type: 'SubscribeWidgetEvent', widgetId, event, handler: fn })
         return () => dispatch({ type: 'UnsubscribeWidgetEvent', widgetId, event, handler: fn })
       } else if (event === 'beforeSerialize') {
+        if (import.meta.env.DEV) {
+          console.warn('[extension-api] widget.on("beforeSerialize") is not yet wired — Phase B')
+        }
         dispatch({ type: 'RegisterWidgetSerializer', widgetId, serializer: fn })
         return () => dispatch({ type: 'UnregisterWidgetSerializer', widgetId, serializer: fn })
       } else if (event === 'beforeQueue') {
+        if (import.meta.env.DEV) {
+          console.warn('[extension-api] widget.on("beforeQueue") is not yet wired — Phase B')
+        }
         dispatch({ type: 'RegisterWidgetQueueValidator', widgetId, validator: fn })
         return () => dispatch({ type: 'UnregisterWidgetQueueValidator', widgetId, validator: fn })
       }
       if (import.meta.env.DEV) {
         // eslint-disable-next-line no-console
-        console.warn(`[extension-api] Unknown widget event: "${event}"`)
+        console.warn(`[extension-api] widget.on("${event}") is not a valid event name`)
       }
       return () => {}
     }) as WidgetHandle['on']
@@ -416,6 +423,9 @@ function createNodeHandle(nodeId: NodeEntityId): NodeHandle {
         event === 'configured'
       ) {
         // TODO(#11939): replace with world.onSystemEvent once World interface gains it
+        if (import.meta.env.DEV) {
+          console.warn(`[extension-api] node.on("${event}") is not yet wired — Phase B`)
+        }
         dispatch({ type: 'SubscribeNodeEvent', nodeId, event, handler: fn })
         return () => dispatch({ type: 'UnsubscribeNodeEvent', nodeId, event, handler: fn })
       } else if (event === 'removed') {
@@ -426,7 +436,7 @@ function createNodeHandle(nodeId: NodeEntityId): NodeHandle {
       }
       if (import.meta.env.DEV) {
         // eslint-disable-next-line no-console
-        console.warn(`[extension-api] Unknown node event: "${event}"`)
+        console.warn(`[extension-api] node.on("${event}") is not a valid event name`)
       }
       return () => {}
     }) as NodeHandle['on']
@@ -620,6 +630,12 @@ export function getScopeRegistry(): ReadonlyMap<string, Readonly<NodeInstanceSco
 
 let _extensionSystemStarted = false
 
+/**
+ * Boots the extension system's reactive mount watcher.
+ *
+ * @internal Not part of the public extension author API. Called by app.ts
+ * during initialization. Do not export from the public barrel.
+ */
 export function startExtensionSystem(): void {
   if (_extensionSystemStarted) {
     if (import.meta.env.DEV) {
