@@ -249,18 +249,21 @@ function createWidgetHandle(widgetId: WidgetEntityId): WidgetHandle {
       } else if (event === 'optionChange' || event === 'propertyChange') {
         // TODO(#11939): wire through ECS event bus when available
         if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
           console.warn(`[extension-api] widget.on("${event}") is not yet wired — Phase B`)
         }
         dispatch({ type: 'SubscribeWidgetEvent', widgetId, event, handler: fn })
         return () => dispatch({ type: 'UnsubscribeWidgetEvent', widgetId, event, handler: fn })
       } else if (event === 'beforeSerialize') {
         if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
           console.warn('[extension-api] widget.on("beforeSerialize") is not yet wired — Phase B')
         }
         dispatch({ type: 'RegisterWidgetSerializer', widgetId, serializer: fn })
         return () => dispatch({ type: 'UnregisterWidgetSerializer', widgetId, serializer: fn })
       } else if (event === 'beforeQueue') {
         if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
           console.warn('[extension-api] widget.on("beforeQueue") is not yet wired — Phase B')
         }
         dispatch({ type: 'RegisterWidgetQueueValidator', widgetId, validator: fn })
@@ -427,6 +430,7 @@ function createNodeHandle(nodeId: NodeEntityId): NodeHandle {
       ) {
         // TODO(#11939): replace with world.onSystemEvent once World interface gains it
         if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
           console.warn(`[extension-api] node.on("${event}") is not yet wired — Phase B`)
         }
         dispatch({ type: 'SubscribeNodeEvent', nodeId, event, handler: fn })
