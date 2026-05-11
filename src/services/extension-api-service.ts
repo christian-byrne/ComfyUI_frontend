@@ -110,6 +110,7 @@ export function _setDispatchImplForTesting(
 function dispatch(_command: Record<string, unknown>): unknown {
   if (_dispatchImpl) return _dispatchImpl(_command)
   if (import.meta.env.DEV) {
+    // eslint-disable-next-line no-console
     console.warn('[extension-api] dispatch() is a stub — ECS commands land with PR #11939', _command)
   }
   return undefined
@@ -256,6 +257,7 @@ function createWidgetHandle(widgetId: WidgetEntityId): WidgetHandle {
         return () => dispatch({ type: 'UnregisterWidgetQueueValidator', widgetId, validator: fn })
       }
       if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
         console.warn(`[extension-api] Unknown widget event: "${event}"`)
       }
       return () => {}
@@ -423,6 +425,7 @@ function createNodeHandle(nodeId: NodeEntityId): NodeHandle {
         return () => {} // cleanup handled by scope.stop()
       }
       if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
         console.warn(`[extension-api] Unknown node event: "${event}"`)
       }
       return () => {}
@@ -557,6 +560,7 @@ export function mountExtensionsForNode(nodeEntityId: NodeEntityId): void {
         if (result instanceof Promise) {
           // Async setup is not supported (D10c) — catch to prevent unhandled rejection
           result.catch((err) => {
+            // eslint-disable-next-line no-console
             console.error(
               `[extension-api] Async error in extension "${ext.name}" setup:`,
               err
@@ -568,6 +572,7 @@ export function mountExtensionsForNode(nodeEntityId: NodeEntityId): void {
               'setup() must be synchronous (D10c).'
             )
           } else {
+            // eslint-disable-next-line no-console
             console.error(
               `[extension-api] Extension "${ext.name}" returned a Promise from setup — ` +
               'async setup is not supported (D10c).'
@@ -618,6 +623,7 @@ let _extensionSystemStarted = false
 export function startExtensionSystem(): void {
   if (_extensionSystemStarted) {
     if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
       console.warn('[extension-api] startExtensionSystem() called multiple times')
     }
     return
@@ -666,6 +672,7 @@ export async function invokeV2AppExtensions(
     try {
       await fn()
     } catch (err) {
+      // eslint-disable-next-line no-console
       console.error(
         `[extension-api] Error in v2 extension "${ext.name}" ${hook}():`,
         err
