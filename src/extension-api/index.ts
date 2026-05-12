@@ -45,11 +45,14 @@
  */
 
 // ── Registration function types ───────────────────────────────────────────────
+// Sourced from `./types` (not `./lifecycle`) to avoid a circular import:
+// `extension-api-service` consumes these contracts and `lifecycle` re-exports
+// `onNodeMounted`/`onNodeRemoved` from the service.
 export type {
   ExtensionOptions,
   NodeExtensionOptions,
   WidgetExtensionOptions
-} from './lifecycle'
+} from './types'
 
 // ── Registration function implementations ────────────────────────────────────
 // Runtime implementations live in the service; the types above are the

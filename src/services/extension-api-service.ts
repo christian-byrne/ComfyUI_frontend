@@ -50,7 +50,7 @@ import type {
   ExtensionOptions,
   NodeExtensionOptions,
   WidgetExtensionOptions
-} from '@/extension-api/lifecycle'
+} from '@/extension-api/types'
 
 // ─── Stub component keys ─────────────────────────────────────────────────────
 // Node-level components (Position, Dimensions, NodeType, etc.) are not yet in
