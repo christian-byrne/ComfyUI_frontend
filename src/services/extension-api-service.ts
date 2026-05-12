@@ -18,9 +18,21 @@
 
 import { EffectScope, onScopeDispose, proxyRefs, watch } from 'vue'
 
-// pauseTracking/resetTracking prevent accidental reactive deps during setup hooks.
-// They are Vue internals not publicly exported. Use no-op shims so this service
-// compiles and runs without a direct @vue/reactivity dep.
+// Phase A no-op stub for the Vue `pauseTracking`/`resetTracking` pair.
+//
+// In Vue's `setupStatefulComponent` (component.ts:829-927) these calls bracket
+// `setup()` so that any property reads inside the user's setup body do NOT
+// register as reactive dependencies of the surrounding effect. We mirror that
+// pattern in the extension scope harness.
+//
+// We intentionally do NOT take a direct dependency on `@vue/reactivity` for
+// Phase A — the contract being stabilized here is the API surface, not the
+// dep-tracking guarantee. Real bracketing lands together with the reactive
+// World contract in #11939 (Phase B), at which point these stubs are replaced
+// by `import { pauseTracking, resetTracking } from '@vue/reactivity'`.
+//
+// TODO(#11939): swap in the real pauseTracking/resetTracking from
+// @vue/reactivity once the reactive-World contract is live.
 const pauseTracking = (): void => {}
 const resetTracking = (): void => {}
 
