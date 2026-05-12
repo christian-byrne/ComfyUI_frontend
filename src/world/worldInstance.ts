@@ -4,6 +4,12 @@
 import type { ComponentKey } from './componentKey'
 import type { EntityId } from './entityIds'
 
+/**
+ * @publicAPI
+ * ECS World contract. Phase A surface; replaced by Alex's PR #11939
+ * (ECS substrate slice 2). Consumed externally by the test framework PR
+ * (#12145) and Phase B dispatch.
+ */
 export interface World {
   getComponent<TData, TEntity extends EntityId>(
     entityId: TEntity,

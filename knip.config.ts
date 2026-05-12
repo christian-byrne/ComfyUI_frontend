@@ -9,6 +9,10 @@ const config: KnipConfig = {
         'src/assets/css/style.css',
         'src/scripts/ui/menu/index.ts',
         'src/types/index.ts',
+        // Public extension API surface — published package entry point.
+        // Per AGENTS.md, this barrel is the explicit exception to the
+        // no-barrel-files-in-src rule because it IS the package entry.
+        'src/extension-api/index.ts',
         'src/storybook/mocks/**/*.ts'
       ],
       project: ['**/*.{js,ts,vue}', '*.{js,ts,mts}', '!.claude/**']
@@ -60,7 +64,11 @@ const config: KnipConfig = {
     // Agent review check config, not part of the build
     '.agents/checks/eslint.strict.config.js',
     // Devtools extensions, included dynamically
-    'tools/devtools/web/**'
+    'tools/devtools/web/**',
+    // Deprecated stub re-exporting from `@/extension-api`. Will be removed
+    // once PKG2 (`@comfyorg/extension-api`) ships and downstream imports
+    // migrate to the package path.
+    'src/types/extensionV2.ts'
   ],
   vite: {
     config: ['vite?(.*).config.mts']
@@ -79,7 +87,11 @@ const config: KnipConfig = {
   tags: [
     '-knipIgnoreUnusedButUsedByCustomNodes',
     '-knipIgnoreUnusedButUsedByVueNodesBranch',
-    '-knipIgnoreUsedByStackedPR'
+    '-knipIgnoreUsedByStackedPR',
+    // Public API surface consumed externally by extension authors and the
+    // TypeDoc docgen pipeline (PKG2). Mark exports with @publicAPI when they
+    // are part of `@comfyorg/extension-api` but not internally referenced.
+    '-publicAPI'
   ]
 }
 

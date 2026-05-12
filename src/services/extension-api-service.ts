@@ -132,8 +132,10 @@ let _dispatchImpl: ((cmd: Record<string, unknown>) => unknown) | null = null
 
 /**
  * @internal
+ * @publicAPI
  * Test-only: override dispatch implementation. Pass null to restore the stub.
- * DO NOT use in extensions — this is an internal testing hook.
+ * DO NOT use in extensions — this is an internal testing hook used by the
+ * test framework PR (#12145) and Phase B ECS dispatch tests.
  */
 export function _setDispatchImplForTesting(
   impl: ((cmd: Record<string, unknown>) => unknown) | null
@@ -159,6 +161,11 @@ function dispatch(_command: Record<string, unknown>): unknown {
 // on graph deletion (world entitiesWith diff triggers unmount).
 // See decisions/D3.5, D10, D12.
 
+/**
+ * @publicAPI
+ * Per-(extension, node) scope record. Exposed so the test framework PR
+ * (#12145) and Phase B dispatch can introspect scope binding.
+ */
 export interface NodeInstanceScope {
   /** Branded entity ID this scope is bound to. */
   readonly nodeEntityId: NodeEntityId

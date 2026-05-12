@@ -26,6 +26,13 @@
 // without forming a circular import. This module re-exports them so the
 // existing public path `@/extension-api/lifecycle` keeps working.
 
+/**
+ * @publicAPI
+ * Back-compat re-exports of the extension option contracts. Prefer importing
+ * from `@comfyorg/extension-api` (or `@/extension-api`); the
+ * `@/extension-api/lifecycle` path is preserved for downstream code that
+ * imported these types from the original module.
+ */
 export type {
   NodeExtensionOptions,
   ExtensionOptions,
@@ -52,6 +59,7 @@ import type {
  * extension registration order with a lexicographic tie-break on `name` (D10b).
  *
  * @stability stable
+ * @publicAPI
  * @example
  * ```ts
  * import { defineNodeExtension } from '@comfyorg/extension-api'
@@ -82,6 +90,7 @@ export declare function defineNodeExtension(
  * `init`, `setup`, sidebar tabs, commands, and other app-level concerns.
  *
  * @stability stable
+ * @publicAPI
  * @example
  * ```ts
  * import { defineExtension } from '@comfyorg/extension-api'
@@ -103,6 +112,7 @@ export declare function defineExtension(
  * a new widget kind.
  *
  * @stability experimental
+ * @publicAPI
  */
 export declare function defineWidgetExtension(
   options: WidgetExtensionOptions
