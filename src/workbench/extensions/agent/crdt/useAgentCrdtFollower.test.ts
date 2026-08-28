@@ -8,10 +8,12 @@
  */
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent, nextTick, ref } from 'vue'
+import { defineComponent, ref } from 'vue'
 import type { Ref } from 'vue'
 
 import { render } from '@testing-library/vue'
+
+import type { GraphMutations } from '@/core/graph/graphMutations'
 
 const bridgeState = vi.hoisted(() => {
   class FakeBridge extends EventTarget {
@@ -32,6 +34,14 @@ const bridgeState = vi.hoisted(() => {
 })
 
 const clientState = vi.hoisted(() => ({
+  destroy: vi.fn()
+}))
+
+const adapterState = vi.hoisted(() => ({
+  bind: vi.fn(),
+  applyFrame: vi.fn(),
+  clearForReset: vi.fn(),
+  discardPending: vi.fn(),
   destroy: vi.fn()
 }))
 
@@ -68,21 +78,18 @@ vi.mock('./docFrameClient', () => ({
   }
 }))
 
-const projectorState = vi.hoisted(() => ({
-  current: null as {
-    project: ReturnType<typeof vi.fn>
-    reset: ReturnType<typeof vi.fn>
-  } | null
+vi.mock('./ecsFollowerAdapter', () => ({
+  EcsFollowerAdapter: class {
+    bind = adapterState.bind
+    applyFrame = adapterState.applyFrame
+    clearForReset = adapterState.clearForReset
+    discardPending = adapterState.discardPending
+    destroy = adapterState.destroy
+  }
 }))
 
-vi.mock('./semanticProjector', () => ({
-  SemanticProjector: class {
-    project = vi.fn()
-    reset = vi.fn()
-    constructor() {
-      projectorState.current = this as never
-    }
-  }
+vi.mock('./devPanelLog', () => ({
+  recordDevEvent: vi.fn()
 }))
 
 vi.mock('@/scripts/api', () => ({ api: apiState.api }))
@@ -94,6 +101,8 @@ vi.mock('@/stores/authStore', () => ({
 import { STALE_AFTER_MS, useAgentCrdtFollower } from './useAgentCrdtFollower'
 import type { AgentCrdtStatus } from './useAgentCrdtFollower'
 
+const graphMutations = {} as GraphMutations
+
 function mountFollower(initial: string | null = null): {
   unmount: () => void
   workflowId: Ref<string | null>
@@ -103,7 +112,7 @@ function mountFollower(initial: string | null = null): {
   let exposedStatus!: () => AgentCrdtStatus
   const host = defineComponent({
     setup() {
-      const { status } = useAgentCrdtFollower(workflowId)
+      const { status } = useAgentCrdtFollower(workflowId, graphMutations)
       exposedStatus = () => status.value as AgentCrdtStatus
       return () => null
     }
@@ -127,9 +136,6 @@ describe('useAgentCrdtFollower', () => {
     setActivePinia(createPinia())
     sessionStorage.clear()
     bridgeState.current = null
-    projectorState.current = null
-    clientState.destroy.mockClear()
-    apiState.api.removeEventListener.mockClear()
   })
 
   it('subscribes immediately to a bound workflow and reports it in status', () => {
@@ -232,52 +238,34 @@ describe('useAgentCrdtFollower', () => {
     unmount()
   })
 
-  it('resubscribes on a socket reconnect without resetting the projector', () => {
+  it('retains the follower and resubscribes on a socket reconnect', () => {
     const { unmount, status } = mountFollower('wf-1')
-    projectorState.current?.reset.mockClear()
     dispatchFrame('doc_subscribed', { ok: true })
     expect(status().connected).toBe(true)
 
     apiState.target.dispatchEvent(new Event('reconnected'))
 
-    // Same-lineage recovery: the bridge's state-vector catch-up is
-    // incremental, so the projector's canvas-matching snapshot must survive.
-    // Resetting it rediffed EMPTY -> full against a materialized canvas and
-    // duplicated the graph.
     expect(status().connected).toBe(false)
     expect(bridge().resubscribe).toHaveBeenCalled()
-    expect(projectorState.current?.reset).not.toHaveBeenCalled()
+    expect(adapterState.clearForReset).not.toHaveBeenCalled()
     unmount()
   })
 
-  it('retains the projector across a doc_reset refetch', () => {
-    const { unmount, status } = mountFollower('wf-1')
-    projectorState.current?.reset.mockClear()
-    dispatchFrame('doc_subscribed', { ok: true })
+  it('clears only for an explicit reset and rebinds after replacement', () => {
+    const { unmount } = mountFollower('wf-1')
+    expect(adapterState.bind).toHaveBeenCalledTimes(1)
 
-    dispatchFrame('doc_reset', { workflowId: 'wf-1', seq: 9 })
-
-    // The bridge replaced its doc; the refetched state diffs against the
-    // projector's record of the still-populated canvas, so only the delta
-    // applies.
-    expect(status().connected).toBe(false)
-    expect(status().updatesApplied).toBe(0)
-    expect(projectorState.current?.reset).not.toHaveBeenCalled()
-    unmount()
-  })
-
-  it('resets the projector on a workflow switch, with the doc replaced by the bridge', () => {
-    const { unmount, workflowId } = mountFollower('wf-1')
-    projectorState.current?.reset.mockClear()
-
-    workflowId.value = 'wf-2'
-    return nextTick().then(() => {
-      // The canvas itself is being replaced here, so document and projection
-      // state restart together.
-      expect(projectorState.current?.reset).toHaveBeenCalled()
-      expect(bridge().subscribe).toHaveBeenCalledWith('wf-2')
-      unmount()
+    dispatchFrame('doc_reset', { actor: 'agent:turn', seq: 43 })
+    expect(adapterState.clearForReset).toHaveBeenCalledWith({
+      source: 'agent-remote',
+      actor: 'agent:turn',
+      opId: 'doc-reset:43'
     })
+
+    dispatchFrame('follower_replaced', { seq: 43 })
+    expect(adapterState.bind).toHaveBeenCalledTimes(2)
+    expect(adapterState.bind).toHaveBeenLastCalledWith(bridge().follower)
+    unmount()
   })
 
   it('re-drives subscription intent on every status frame', () => {
@@ -297,6 +285,7 @@ describe('useAgentCrdtFollower', () => {
 
     expect(status().connected).toBe(false)
     expect(status().workflowId).toBe('wf-1')
+    expect(adapterState.discardPending).toHaveBeenCalled()
     unmount()
   })
 
@@ -304,10 +293,12 @@ describe('useAgentCrdtFollower', () => {
     const { unmount, status } = mountFollower('wf-1')
     bridge().follower.updatesApplied = 3
 
-    dispatchFrame('doc_update', { seq: 7 })
+    const update = { seq: 7 }
+    dispatchFrame('doc_update', update)
 
     expect(status().updatesApplied).toBe(3)
     expect(status().lastFrameType).toBe('doc_update')
+    expect(adapterState.applyFrame).toHaveBeenCalledWith(update)
     unmount()
   })
 
@@ -316,7 +307,10 @@ describe('useAgentCrdtFollower', () => {
     let send!: (ops: never[]) => void
     const host = defineComponent({
       setup() {
-        const { sendHumanOps } = useAgentCrdtFollower(workflowId)
+        const { sendHumanOps } = useAgentCrdtFollower(
+          workflowId,
+          graphMutations
+        )
         send = sendHumanOps as (ops: never[]) => void
         return () => null
       }
@@ -394,7 +388,7 @@ describe('useAgentCrdtFollower', () => {
     const workflowId = ref<string | null>('wf-1')
     const host = defineComponent({
       setup() {
-        useAgentCrdtFollower(workflowId)
+        useAgentCrdtFollower(workflowId, graphMutations)
         return () => null
       }
     })
@@ -415,6 +409,7 @@ describe('useAgentCrdtFollower', () => {
 
     expect(String(hookErrors[0])).toContain('half-dead bridge')
     expect(clientState.destroy).toHaveBeenCalled()
+    expect(adapterState.destroy).toHaveBeenCalled()
     expect(apiState.api.removeEventListener).toHaveBeenCalledWith(
       'reconnected',
       expect.any(Function)

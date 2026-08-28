@@ -223,8 +223,12 @@ describe('doc_reset — a lineage break drops the doc and resubscribes from zero
   it('replaces the follower doc and resubscribes with an empty state vector', () => {
     const { transport, bridge, projected } = wire()
     const resets: unknown[] = []
+    let followerSeenDuringReset: unknown = null
     bridge.addEventListener('doc_reset', (event) => {
-      if (event instanceof CustomEvent) resets.push(event.detail)
+      if (event instanceof CustomEvent) {
+        resets.push(event.detail)
+        followerSeenDuringReset = bridge.follower
+      }
     })
     transport.open = true
     bridge.subscribe(WORKFLOW_ID)
@@ -239,6 +243,7 @@ describe('doc_reset — a lineage break drops the doc and resubscribes from zero
     expect(bridge.follower.updatesApplied).toBe(0)
     expect(bridge.follower.doc.getMap('nodes').size).toBe(0)
     expect(resets).toEqual([{ workflowId: WORKFLOW_ID, seq: 43 }])
+    expect(followerSeenDuringReset).toBe(oldDoc)
 
     // The resubscribe carries the FRESH doc's state vector — the empty one —
     // so the server's ordinary catch-up path returns the full folded state.
@@ -328,7 +333,7 @@ describe('FE-GAP-1 — a seq jump means a dropped frame and forces a resync', ()
     expect(transport.framesOfType('doc_subscribe')).toHaveLength(1)
   })
 
-  it('does not apply the gapped frame, retains the doc, and replays via its state vector', () => {
+  it('withholds the gapped frame, retains the exact doc, and replays from its state vector', () => {
     const { transport, bridge, projected } = wire()
     transport.open = true
     bridge.subscribe(WORKFLOW_ID)
@@ -338,97 +343,43 @@ describe('FE-GAP-1 — a seq jump means a dropped frame and forces a resync', ()
       ok: true,
       seq: 1
     })
+
     transport.deliver(
       'doc_update',
       docUpdateFrame(hostDocUpdate(), WORKFLOW_ID, 2)
     )
-    const docBeforeGap = bridge.follower
-    expect(docBeforeGap.updatesApplied).toBe(1)
+    const retained = bridge.follower
+    const retainedVector = encodeBase64(retained.stateVector())
 
     transport.deliver(
       'doc_update',
       docUpdateFrame(hostDocUpdate(), WORKFLOW_ID, 4)
     )
 
-    // The gapped frame is not applied - Yjs would only buffer it against its
-    // missing dependencies - but an ordinary gap is NOT lineage evidence:
-    // the doc is RETAINED and the resubscribe carries its real state vector,
-    // so the server returns a delta instead of the full state.
     expect(projected).toHaveLength(1)
-    expect(bridge.follower).toBe(docBeforeGap)
+    expect(bridge.follower).toBe(retained)
+    expect(bridge.follower.updatesApplied).toBe(1)
+    expect(transport.framesOfType('doc_subscribe')).toHaveLength(2)
+    expect(bridge.subscribedWorkflowId).toBe(WORKFLOW_ID)
+
+    // ADR-0024: an ordinary gap is same-lineage state-vector replay. Only a
+    // separately delivered doc_reset may replace the document.
     const gapSubscribes = transport.framesOfType('doc_subscribe') as {
       data: { state_vector_b64: string }
     }[]
-    expect(gapSubscribes).toHaveLength(2)
-    expect(gapSubscribes[1].data.state_vector_b64).toBe(
-      encodeBase64(docBeforeGap.stateVector())
-    )
-    expect(gapSubscribes[1].data.state_vector_b64).not.toBe(
-      encodeBase64(Y.encodeStateVector(new Y.Doc()))
-    )
-    expect(bridge.subscribedWorkflowId).toBe(WORKFLOW_ID)
+    expect(gapSubscribes[1].data.state_vector_b64).toBe(retainedVector)
 
-    // Same-lineage confirmation (seq did not regress): the catch-up lands on
-    // the retained doc.
-    transport.deliver('doc_subscribed', {
-      v: 1,
-      workflow_id: WORKFLOW_ID,
-      ok: true,
-      seq: 4
-    })
+    // The resubscribe re-baselined: the catch-up frame lands whatever its seq.
     transport.deliver(
       'doc_update',
-      docUpdateFrame(hostDocUpdate(), WORKFLOW_ID, 5)
+      docUpdateFrame(hostDocUpdate(), WORKFLOW_ID, 4)
     )
-    expect(bridge.follower).toBe(docBeforeGap)
     expect(projected).toHaveLength(2)
+    expect(bridge.follower).toBe(retained)
     expect(transport.framesOfType('doc_subscribe')).toHaveLength(2)
   })
 
-  it('a missed doc_reset is caught as a seq regression and refetched from zero', () => {
-    const { transport, bridge } = wire()
-    transport.open = true
-    bridge.subscribe(WORKFLOW_ID)
-    transport.deliver('doc_subscribed', {
-      v: 1,
-      workflow_id: WORKFLOW_ID,
-      ok: true,
-      seq: 41
-    })
-    transport.deliver(
-      'doc_update',
-      docUpdateFrame(hostDocUpdate(), WORKFLOW_ID, 42)
-    )
-    const oldLineage = bridge.follower
-
-    // A gap provokes the retained-doc replay...
-    transport.deliver(
-      'doc_update',
-      docUpdateFrame(hostDocUpdate(), WORKFLOW_ID, 44)
-    )
-    expect(bridge.follower).toBe(oldLineage)
-
-    // ...but the catch-up's snapshot seq is BELOW the lineage floor: the doc
-    // was re-minted behind the missed reset. It is dropped BEFORE any folded
-    // catch-up update can apply, and the refetch starts from the empty vector.
-    transport.deliver('doc_subscribed', {
-      v: 1,
-      workflow_id: WORKFLOW_ID,
-      ok: true,
-      seq: 2
-    })
-    expect(bridge.follower).not.toBe(oldLineage)
-    expect(bridge.follower.updatesApplied).toBe(0)
-    const subscribes = transport.framesOfType('doc_subscribe') as {
-      data: { state_vector_b64: string }
-    }[]
-    expect(subscribes).toHaveLength(3)
-    expect(subscribes[2].data.state_vector_b64).toBe(
-      encodeBase64(Y.encodeStateVector(new Y.Doc()))
-    )
-  })
-
-  it('a duplicate or stale seq is still applied and provokes no resubscribe', () => {
+  it('ignores a duplicate or stale seq and provokes no resubscribe', () => {
     const { transport, bridge, projected } = wire()
     transport.open = true
     bridge.subscribe(WORKFLOW_ID)
@@ -442,7 +393,8 @@ describe('FE-GAP-1 — a seq jump means a dropped frame and forces a resync', ()
       docUpdateFrame(hostDocUpdate(), WORKFLOW_ID, 2)
     )
 
-    expect(projected).toHaveLength(2)
+    expect(projected).toHaveLength(1)
+    expect(bridge.follower.updatesApplied).toBe(1)
     expect(transport.framesOfType('doc_subscribe')).toHaveLength(1)
   })
 
@@ -466,93 +418,6 @@ describe('FE-GAP-1 — a seq jump means a dropped frame and forces a resync', ()
     bridge.reconcile()
     expect(bridge.subscribedWorkflowId).toBe(WORKFLOW_ID)
     expect(transport.framesOfType('doc_subscribe')).toHaveLength(2)
-  })
-})
-
-describe('workflow switch and lost-frame recovery', () => {
-  it('a workflow switch replaces the follower doc and subscribes from the new baseline', () => {
-    const { transport, bridge } = wire()
-    transport.open = true
-    bridge.subscribe(WORKFLOW_ID)
-    transport.deliver('doc_update', docUpdateFrame(hostDocUpdate()))
-    const oldDoc = bridge.follower
-    expect(oldDoc.updatesApplied).toBe(1)
-
-    bridge.subscribe('wf-2')
-
-    // Workflow B's updates must never merge into workflow A's document: the
-    // doc is replaced with the projection reset owned by the same watch, and
-    // the new subscribe starts from B's own (empty) baseline.
-    expect(bridge.follower).not.toBe(oldDoc)
-    expect(bridge.follower.updatesApplied).toBe(0)
-    expect(transport.framesOfType('doc_unsubscribe')).toHaveLength(1)
-    const subscribes = transport.framesOfType('doc_subscribe') as {
-      data: { workflow_id: string; state_vector_b64: string }
-    }[]
-    expect(subscribes).toHaveLength(2)
-    expect(subscribes[1].data.workflow_id).toBe('wf-2')
-    expect(subscribes[1].data.state_vector_b64).toBe(
-      encodeBase64(Y.encodeStateVector(new Y.Doc()))
-    )
-  })
-
-  it('an undecodable doc_update reports frame_error and replays the same lineage', () => {
-    const { transport, bridge } = wire()
-    const failures: unknown[] = []
-    bridge.addEventListener('frame_error', (event) => {
-      if (event instanceof CustomEvent) failures.push(event.detail)
-    })
-    transport.open = true
-    bridge.subscribe(WORKFLOW_ID)
-    transport.deliver('doc_update', docUpdateFrame(hostDocUpdate()))
-    const doc = bridge.follower
-
-    transport.deliver('doc_update', {
-      v: 1,
-      workflow_id: WORKFLOW_ID,
-      seq: 2,
-      update_b64: '@@@not-base64@@@'
-    })
-
-    // The frame's bytes are lost, so the doc has a hole only a same-lineage
-    // state-vector replay can fill. The document itself is never replaced.
-    expect(failures).toEqual([
-      { workflowId: WORKFLOW_ID, reason: 'decode_failed' }
-    ])
-    expect(bridge.follower).toBe(doc)
-    expect(doc.updatesApplied).toBe(1)
-    const subscribes = transport.framesOfType('doc_subscribe') as {
-      data: { state_vector_b64: string }
-    }[]
-    expect(subscribes).toHaveLength(2)
-    expect(subscribes[1].data.state_vector_b64).toBe(
-      encodeBase64(doc.stateVector())
-    )
-  })
-
-  it('a doc_update whose bytes fail to apply reports frame_error and replays', () => {
-    const { transport, bridge } = wire()
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const failures: unknown[] = []
-    bridge.addEventListener('frame_error', (event) => {
-      if (event instanceof CustomEvent) failures.push(event.detail)
-    })
-    transport.open = true
-    bridge.subscribe(WORKFLOW_ID)
-    transport.deliver('doc_update', docUpdateFrame(hostDocUpdate()))
-    const doc = bridge.follower
-
-    transport.deliver(
-      'doc_update',
-      docUpdateFrame(new Uint8Array([7, 7, 7]), WORKFLOW_ID, 2)
-    )
-
-    expect(failures).toEqual([
-      { workflowId: WORKFLOW_ID, reason: 'apply_failed' }
-    ])
-    expect(bridge.follower).toBe(doc)
-    expect(transport.framesOfType('doc_subscribe')).toHaveLength(2)
-    warn.mockRestore()
   })
 })
 

@@ -11,6 +11,8 @@ export interface DocUpdate {
   seq: number
   update: Uint8Array
   actor?: string
+  /** Accepted semantic op identities folded into this effect frame (DQ-9). */
+  opIds?: string[]
 }
 
 export interface DocSubscribed {
@@ -55,24 +57,12 @@ export interface DocReset {
   actor?: string
 }
 
-/**
- * Typed failure surface for an inbound frame that named a workflow but could
- * not be decoded. The frame's bytes are lost, so the only sound recovery is a
- * same-lineage state-vector replay - the bridge owns that; this frame carries
- * the report.
- */
-interface DocFrameError {
-  workflowId: string
-  reason: 'decode_failed'
-}
-
 export type ServerDocFrame =
   | { type: 'doc_update'; data: DocUpdate }
   | { type: 'doc_subscribed'; data: DocSubscribed }
   | { type: 'doc_ops_result'; data: DocOpsResult }
   | { type: 'doc_reset'; data: DocReset }
   | { type: 'awareness'; data: DocAwareness }
-  | { type: 'frame_error'; data: DocFrameError }
 
 export interface DocFrameTransport {
   /**
@@ -84,7 +74,7 @@ export interface DocFrameTransport {
    * awaiting its auth token — not an exception. Throwing here aborted the
    * `watch(..., { immediate: true })` subscribe (leaving the follower
    * permanently inert) and aborted `onBeforeUnmount` before `client.destroy()`
-   * (leaking listeners and a live projector). Callers reconcile intent against
+   * (leaking listeners and a live adapter). Callers reconcile intent against
    * the returned boolean instead.
    */
   send(frame: string): boolean
@@ -98,6 +88,7 @@ interface WireData {
   seq?: unknown
   update_b64?: unknown
   actor?: unknown
+  op_ids?: unknown
   ok?: unknown
   code?: unknown
   message?: unknown
@@ -145,26 +136,18 @@ export function parseServerDocFrame(value: unknown): ServerDocFrame | null {
     typeof data.seq === 'number' &&
     typeof data.update_b64 === 'string'
   ) {
-    // A payload that cannot decode is a LOST update, not a malformed frame to
-    // drop silently: the doc now has a hole only a state-vector replay can
-    // fill. Report it typed so the bridge can recover without replacing the
-    // document.
-    let update: Uint8Array
-    try {
-      update = decodeBase64(data.update_b64)
-    } catch {
-      return {
-        type: 'frame_error',
-        data: { workflowId: data.workflow_id, reason: 'decode_failed' }
-      }
-    }
     return {
       type: frame.type,
       data: {
         workflowId: data.workflow_id,
         seq: data.seq,
-        update,
-        ...(typeof data.actor === 'string' && { actor: data.actor })
+        update: decodeBase64(data.update_b64),
+        ...(typeof data.actor === 'string' && { actor: data.actor }),
+        ...(Array.isArray(data.op_ids) && {
+          opIds: data.op_ids.filter(
+            (item): item is string => typeof item === 'string'
+          )
+        })
       }
     }
   }
@@ -252,9 +235,7 @@ export class DocFrameClient extends EventTarget {
         if (!(event instanceof CustomEvent)) return
         const parsed = parseServerDocFrame({ type, data: event.detail })
         if (parsed)
-          this.dispatchEvent(
-            new CustomEvent(parsed.type, { detail: parsed.data })
-          )
+          this.dispatchEvent(new CustomEvent(type, { detail: parsed.data }))
       }
       this.listeners.set(type, listener)
       transport.addEventListener(type, listener)

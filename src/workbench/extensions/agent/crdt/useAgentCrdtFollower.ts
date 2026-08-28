@@ -1,15 +1,15 @@
 import { computed, onBeforeUnmount, readonly, ref, watch } from 'vue'
 import type { Ref } from 'vue'
 
-import { LiteGraph } from '@/lib/litegraph/src/litegraph'
+import type { GraphMutations } from '@/core/graph/graphMutations'
 import { api } from '@/scripts/api'
-import { app } from '@/scripts/app'
+import type { RemoteMutationContext } from '@/types/graphMutationContext'
 
-import type { DocFrameTransport, DocOp } from './docFrameClient'
+import { recordDevEvent } from './devPanelLog'
+import type { DocFrameTransport, DocOp, DocUpdate } from './docFrameClient'
 import { DocFrameClient } from './docFrameClient'
+import { EcsFollowerAdapter } from './ecsFollowerAdapter'
 import { LayoutFollowerBridge } from './layoutFollowerBridge'
-import { LitegraphMutator } from './litegraphMutator'
-import { SemanticProjector } from './semanticProjector'
 
 // FE-1902: the doc id is otherwise held only in memory (set on turn ack), so a
 // panel remount / page reload loses the binding until the NEXT turn ack.
@@ -82,15 +82,29 @@ export const apiTransport: DocFrameTransport = {
   }
 }
 
-export function useAgentCrdtFollower(workflowId: Ref<string | null>) {
+export function useAgentCrdtFollower(
+  workflowId: Ref<string | null>,
+  graphMutations: GraphMutations
+) {
   const connected = ref(false)
   const updatesApplied = ref(0)
   const lastFrameType = ref<string | null>(null)
   const subscribedWorkflowId = ref<string | null>(null)
 
+  // Dev-panel tap (poc-4): log every outbound frame with its delivery result.
+  // Wraps locally instead of modifying the exported apiTransport, whose
+  // never-throw contract is covered by tests.
   const transport: DocFrameTransport = {
     send(frame) {
-      return apiTransport.send(frame)
+      const delivered = apiTransport.send(frame)
+      let parsed: unknown = frame
+      try {
+        parsed = JSON.parse(frame)
+      } catch {
+        // Leave the raw string.
+      }
+      recordDevEvent('ws_out', { delivered, frame: parsed })
+      return delivered
     },
     addEventListener(type, listener) {
       apiTransport.addEventListener(type, listener)
@@ -101,17 +115,24 @@ export function useAgentCrdtFollower(workflowId: Ref<string | null>) {
   }
   const client = new DocFrameClient(transport)
   const bridge = new LayoutFollowerBridge(client)
+  const adapter = new EcsFollowerAdapter(graphMutations)
+  adapter.bind(bridge.follower)
   const tabId = crypto.randomUUID()
-  // Post-ECS main removed the global layout source scope
-  // (`LayoutSource.External` / `layoutStore.setSource`), so remote batches
-  // apply directly. Echo suppression becomes load-bearing only when the
-  // human-op sender lands (KA-6: the follower itself never writes); it must
-  // then be rebuilt against per-mutation ECS command sources.
-  const mutator = new LitegraphMutator({
-    getGraph: () => app.graph ?? null,
-    createNode: (type) => LiteGraph.createNode(type)
-  })
-  const projector = new SemanticProjector(mutator, { actor: tabId })
+
+  // Dev-panel tap (poc-4): track the doc's node-id set so the panel can show
+  // exactly which nodes each doc_update added/removed. Rebuilt from zero on
+  // doc_reset (remint) because the lineage broke.
+  let knownDocNodeIds: Set<string> = new Set()
+  const currentDocNodeIds = (): Set<string> => {
+    try {
+      const doc = bridge.follower.doc as unknown as {
+        getMap: (k: string) => { toJSON: () => Record<string, unknown> }
+      }
+      return new Set(Object.keys(doc.getMap('nodes').toJSON()))
+    } catch {
+      return new Set()
+    }
+  }
 
   // FE-1901 (poc-2): a `doc_subscribed {ok:false}` is a SERVER refusal — e.g.
   // the subscribe raced the doc-host before the turn ack minted the doc. The
@@ -141,6 +162,9 @@ export function useAgentCrdtFollower(workflowId: Ref<string | null>) {
     clearStaleProbe()
     staleProbeTimer = setTimeout(() => {
       staleProbeTimer = null
+      recordDevEvent('stale_probe', {
+        workflowId: subscribedWorkflowId.value
+      })
       bridge.resubscribe()
       armStaleProbe()
     }, STALE_AFTER_MS)
@@ -165,6 +189,10 @@ export function useAgentCrdtFollower(workflowId: Ref<string | null>) {
       subscribeRetryTimer = null
       // The desired doc changed while we waited — the watch owns that path.
       if (subscribedWorkflowId.value !== target) return
+      recordDevEvent('subscribe_retry', {
+        attempt: subscribeRetryAttempt,
+        workflowId: target
+      })
       bridge.resubscribe()
     }, delay)
   }
@@ -174,6 +202,7 @@ export function useAgentCrdtFollower(workflowId: Ref<string | null>) {
     const ok = event.detail?.ok === true
     connected.value = ok
     lastFrameType.value = event.type
+    recordDevEvent('doc_subscribed', event.detail ?? null)
     if (ok) {
       clearSubscribeRetry()
       armStaleProbe()
@@ -190,24 +219,61 @@ export function useAgentCrdtFollower(workflowId: Ref<string | null>) {
     if (staleProbeTimer !== null) armStaleProbe()
     updatesApplied.value = bridge.follower.updatesApplied
     lastFrameType.value = event.type
-    projector.project(bridge.follower.doc)
+    if (event instanceof CustomEvent) {
+      adapter.applyFrame(event.detail as DocUpdate)
+    }
+    if (event instanceof CustomEvent) {
+      const detail = event.detail as {
+        workflowId?: string
+        seq?: number
+        update?: Uint8Array
+        actor?: string
+      } | null
+      recordDevEvent('doc_update', {
+        workflowId: detail?.workflowId,
+        seq: detail?.seq,
+        actor: detail?.actor,
+        bytes:
+          detail?.update instanceof Uint8Array ? detail.update.length : null
+      })
+    }
+    const ids = currentDocNodeIds()
+    const added = [...ids].filter((id) => !knownDocNodeIds.has(id))
+    const removed = [...knownDocNodeIds].filter((id) => !ids.has(id))
+    if (added.length > 0 || removed.length > 0)
+      recordDevEvent('doc_nodes_changed', { added, removed })
+    knownDocNodeIds = ids
   }
   const onOpsResult: EventListener = (event) => {
     if (staleProbeTimer !== null) armStaleProbe()
     lastFrameType.value = event.type
+    if (event instanceof CustomEvent) {
+      recordDevEvent('doc_ops_result', event.detail ?? null)
+    }
   }
   const onDocReset: EventListener = (event) => {
-    // Lineage break: the bridge already dropped its doc and resubscribed with
-    // an empty state vector. The PROJECTOR is retained: its snapshot records
-    // what is on the canvas, so diffing it against the refetched state applies
-    // exactly the delta. Resetting it here would rediff EMPTY -> full against
-    // a still-populated canvas and duplicate every node; projector reset is
-    // reserved for the workflow-change watch, where the canvas itself is
-    // replaced.
+    const detail =
+      event instanceof CustomEvent
+        ? (event.detail as { actor?: string; seq?: number })
+        : undefined
+    const context: RemoteMutationContext = {
+      source: 'agent-remote',
+      actor: detail?.actor ?? 'agent-reset',
+      opId: `doc-reset:${detail?.seq ?? 'unknown'}`
+    }
+    adapter.clearForReset(context)
     connected.value = false
     updatesApplied.value = 0
     lastFrameType.value = event.type
     clearStaleProbe()
+    knownDocNodeIds = new Set()
+    recordDevEvent(
+      'doc_reset',
+      event instanceof CustomEvent ? (event.detail ?? null) : null
+    )
+  }
+  const onFollowerReplaced: EventListener = () => {
+    adapter.bind(bridge.follower)
   }
   const onSchemaError: EventListener = (event) => {
     // KA-11 fail-closed: the bridge refused to propagate an unreadable doc, so
@@ -216,21 +282,17 @@ export function useAgentCrdtFollower(workflowId: Ref<string | null>) {
     connected.value = false
     lastFrameType.value = event.type
     clearStaleProbe()
+    adapter.discardPending()
+    recordDevEvent(
+      'schema_error',
+      event instanceof CustomEvent ? (event.detail ?? null) : null
+    )
   }
   const onReconnected: EventListener = () => {
-    // Same-lineage recovery: the bridge keeps its doc and catches up via its
-    // state vector, so the projector's canvas-matching snapshot stays valid
-    // and the catch-up projects incrementally. Resetting it here rediffed
-    // EMPTY -> full against the already-materialized canvas and let LiteGraph
-    // reassign IDs for duplicate adds.
     connected.value = false
     clearStaleProbe()
+    recordDevEvent('reconnected', null)
     bridge.resubscribe()
-  }
-  const onFrameError: EventListener = (event) => {
-    // The bridge already requested the same-lineage replay; this surfaces the
-    // failure as its own status instead of a silent stall.
-    lastFrameType.value = event.type
   }
   /**
    * Re-drive subscription intent whenever the socket may have become usable.
@@ -253,8 +315,8 @@ export function useAgentCrdtFollower(workflowId: Ref<string | null>) {
   bridge.addEventListener('doc_update', onUpdate)
   bridge.addEventListener('doc_ops_result', onOpsResult)
   bridge.addEventListener('doc_reset', onDocReset)
+  bridge.addEventListener('follower_replaced', onFollowerReplaced)
   bridge.addEventListener('schema_error', onSchemaError)
-  bridge.addEventListener('frame_error', onFrameError)
   api.addEventListener('reconnected', onReconnected)
   api.addEventListener('status', onSocketActivity)
 
@@ -268,11 +330,12 @@ export function useAgentCrdtFollower(workflowId: Ref<string | null>) {
       clearSubscribeRetry()
       clearStaleProbe()
       connected.value = false
-      projector.reset()
+      knownDocNodeIds = new Set()
       if (next === null) {
         const persisted = initialBind ? readPersistedDocId() : null
         initialBind = false
         if (persisted !== null) {
+          recordDevEvent('rebind', { workflowId: persisted })
           subscribedWorkflowId.value = persisted
           bridge.subscribe(persisted)
           return
@@ -290,11 +353,8 @@ export function useAgentCrdtFollower(workflowId: Ref<string | null>) {
   )
 
   onBeforeUnmount(() => {
-    // Teardown must be total. Anything that survives keeps a projector wired to
-    // the live `app.graph`, so a remount would apply every subsequent update
-    // twice. `bridge.destroy()` and the transport send it performs are
-    // failure-tolerant by construction now, but the try/finally makes the
-    // "client.destroy() always runs" guarantee local and readable.
+    // Teardown must be total. Anything that survives would apply every later
+    // update twice after a remount.
     try {
       clearSubscribeRetry()
       clearStaleProbe()
@@ -304,8 +364,9 @@ export function useAgentCrdtFollower(workflowId: Ref<string | null>) {
       bridge.removeEventListener('doc_update', onUpdate)
       bridge.removeEventListener('doc_ops_result', onOpsResult)
       bridge.removeEventListener('doc_reset', onDocReset)
+      bridge.removeEventListener('follower_replaced', onFollowerReplaced)
       bridge.removeEventListener('schema_error', onSchemaError)
-      bridge.removeEventListener('frame_error', onFrameError)
+      adapter.destroy()
       bridge.destroy()
     } finally {
       client.destroy()
