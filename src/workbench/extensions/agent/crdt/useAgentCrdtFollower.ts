@@ -169,14 +169,7 @@ export function useAgentCrdtFollower(
   // doc_reset (remint) because the lineage broke.
   let knownDocNodeIds: Set<string> = new Set()
   const currentDocNodeIds = (): Set<string> => {
-    try {
-      const doc = bridge.follower.doc as unknown as {
-        getMap: (k: string) => { toJSON: () => Record<string, unknown> }
-      }
-      return new Set(Object.keys(doc.getMap('nodes').toJSON()))
-    } catch {
-      return new Set()
-    }
+    return new Set(bridge.readNodeIds())
   }
 
   // FE-1901 (poc-2): a `doc_subscribed {ok:false}` is a SERVER refusal — e.g.

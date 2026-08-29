@@ -23,11 +23,10 @@ const bridgeState = vi.hoisted(() => {
     reconcile = vi.fn()
     destroy = vi.fn()
     sendHumanOps = vi.fn()
+    readNodeIds = vi.fn(() => [])
     follower = {
       updatesApplied: 0,
-      doc: {
-        getMap: () => ({ toJSON: () => ({}) })
-      }
+      doc: {}
     }
   }
   return { FakeBridge, current: null as InstanceType<typeof FakeBridge> | null }

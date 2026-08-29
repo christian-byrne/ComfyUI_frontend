@@ -19,7 +19,7 @@
  *   FE-KA11-1       nothing read `meta.schema_version`, so a doc written at a
  *                   schema this build does not understand was projected anyway.
  */
-import { mint, nodesMap } from '@comfyorg/comfy-multi-player'
+import { SCHEMA_VERSION, mint, nodesMap } from '@comfyorg/comfy-multi-player'
 import { describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
@@ -308,6 +308,19 @@ describe('doc_reset — a lineage break drops the doc and resubscribes from zero
   })
 })
 
+describe('diagnostic reads', () => {
+  it('reads node ids without materializing an empty Y.Doc root', () => {
+    const { bridge } = wire()
+    const before = Y.encodeStateAsUpdate(bridge.follower.doc)
+
+    expect(bridge.readNodeIds()).toEqual([])
+    expect(bridge.follower.doc.share.size).toBe(0)
+    expect([...Y.encodeStateAsUpdate(bridge.follower.doc)]).toEqual([...before])
+
+    bridge.destroy()
+  })
+})
+
 describe('FE-GAP-1 — a seq jump means a dropped frame and forces a resync', () => {
   it('applies contiguous seqs without resubscribing', () => {
     const { transport, bridge, projected } = wire()
@@ -441,7 +454,7 @@ describe('FE-KA11-1 — the read-time schema gate fails closed', () => {
     bridge.subscribe(WORKFLOW_ID)
 
     const v2 = hostDocUpdate((doc) =>
-      doc.getMap('meta').set('schema_version', 2)
+      doc.getMap('meta').set('schema_version', SCHEMA_VERSION + 1)
     )
     transport.deliver('doc_update', docUpdateFrame(v2))
 
@@ -449,7 +462,11 @@ describe('FE-KA11-1 — the read-time schema gate fails closed', () => {
     expect(projected).toHaveLength(0)
     // …and the failure is distinguishable, not a silent "disconnected".
     expect(schemaErrors).toEqual([
-      { workflowId: WORKFLOW_ID, found: 2, firstFailure: true }
+      {
+        workflowId: WORKFLOW_ID,
+        found: SCHEMA_VERSION + 1,
+        firstFailure: true
+      }
     ])
     expect(bridge.lastSchemaError).toBeInstanceOf(FollowerSchemaError)
     expect(error).toHaveBeenCalled()
@@ -463,7 +480,7 @@ describe('FE-KA11-1 — the read-time schema gate fails closed', () => {
     bridge.subscribe(WORKFLOW_ID)
 
     const v2 = hostDocUpdate((doc) =>
-      doc.getMap('meta').set('schema_version', 2)
+      doc.getMap('meta').set('schema_version', SCHEMA_VERSION + 1)
     )
     transport.deliver('doc_update', docUpdateFrame(v2, WORKFLOW_ID, 1))
     transport.deliver('doc_update', docUpdateFrame(v2, WORKFLOW_ID, 2))

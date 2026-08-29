@@ -1,3 +1,5 @@
+import { readGraph } from '@comfyorg/comfy-multi-player'
+
 import { docLog, wireLog } from './crdtLog'
 import type {
   DocFrameClient,
@@ -106,6 +108,20 @@ export class LayoutFollowerBridge extends EventTarget {
   /** Highest doc seq integrated since the last subscribe, for diagnostics. */
   get lastAppliedSeq(): number | null {
     return this.lastSeq
+  }
+
+  /**
+   * Read node ids through the shared package's non-materializing snapshot
+   * surface. Diagnostics must not reach through `follower.doc` and call a raw
+   * Yjs root lookup, because `getMap('nodes')` creates that root on an empty
+   * follower document.
+   */
+  readNodeIds(): readonly string[] {
+    try {
+      return Object.keys(readGraph(this.followerDoc.doc).nodes)
+    } catch {
+      return []
+    }
   }
 
   /** True while intent and reality disagree — i.e. a retry is still owed. */
