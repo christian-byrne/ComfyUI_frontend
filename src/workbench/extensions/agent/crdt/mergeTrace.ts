@@ -44,7 +44,7 @@ export interface MergeTraceEntry {
   register: string
   /** Human-readable form of the same cell. */
   registerLabel: string
-  /** `[base_version, actor, op_id]` — the total order the applier sorts by. */
+  /** `[lamport_counter, actor, op_id]` — the total order the applier sorts by. */
   stamp: StampKey
   /** The node this op addresses, when it addresses one. */
   nodeId: string | null
@@ -69,7 +69,7 @@ export const MERGE_VOCABULARY: readonly {
   {
     term: 'stamp',
     meaning:
-      'The total order edits are compared in: [base_version, actor, op_id]. Higher wins; the op_id breaks exact ties so every replica picks the same winner offline.'
+      'The total order edits are compared in: [Lamport counter, actor, op_id]. Higher wins; the op_id breaks exact ties so every replica picks the same winner offline.'
   },
   {
     term: 'applied',
@@ -114,10 +114,9 @@ export function opNodeId(op: WireOp): string | null {
 /**
  * A human label for the contested cell.
  *
- * `writeTarget` returns the applier's own tuple (e.g. `['widget', '7',
- * 'seed']`); rendering it verbatim is honest but unreadable, so each shape
- * gets a sentence and anything unrecognised falls back to the raw tuple
- * rather than being hidden.
+ * `writeTarget` returns the applier's own tuple; rendering it verbatim is
+ * honest but unreadable, so each shape gets a sentence and anything
+ * unrecognised falls back to the raw tuple rather than being hidden.
  */
 export function registerLabel(target: readonly unknown[]): string {
   const [kind, ...rest] = target.map((part) => String(part))
@@ -135,9 +134,9 @@ export function registerLabel(target: readonly unknown[]): string {
   }
 }
 
-function formatStampKey(key: StampKey): string {
-  const [baseVersion, actor, opId] = key
-  return `v${baseVersion} · ${actor} · ${opId.slice(0, 8)}`
+export function formatStampKey(key: StampKey): string {
+  const [counter, actor, opId] = key
+  return `Lamport ${counter} · ${actor} · ${opId.slice(0, 8)}`
 }
 
 function explainVerdict(

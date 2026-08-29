@@ -32,7 +32,12 @@ import { clearDevEvents, devEvents, stringifyDevEvents } from './devPanelLog'
 import type { MergeScenario, MergeSimulation } from './mergeScenarios'
 import { MERGE_SCENARIOS, runScenario } from './mergeScenarios'
 import type { MergeTraceEntry, NodeLifecycleRow } from './mergeTrace'
-import { MERGE_VOCABULARY, groupByRegister, nodeLifecycle } from './mergeTrace'
+import {
+  MERGE_VOCABULARY,
+  formatStampKey,
+  groupByRegister,
+  nodeLifecycle
+} from './mergeTrace'
 import type { AgentCrdtStatus } from './useAgentCrdtFollower'
 
 /**
@@ -290,7 +295,7 @@ const lifecycle = computed(() =>
 )
 
 function registerLine(entry: MergeTraceEntry): string {
-  return `${entry.registerLabel} · stamp v${entry.stamp[0]}`
+  return `${entry.registerLabel} · ${formatStampKey(entry.stamp)}`
 }
 
 function lifecycleLine(row: NodeLifecycleRow): string {

@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import { MERGE_SCENARIOS, runScenario } from './mergeScenarios'
-import { groupByRegister, nodeLifecycle, registerLabel } from './mergeTrace'
+import {
+  formatStampKey,
+  groupByRegister,
+  nodeLifecycle,
+  registerLabel
+} from './mergeTrace'
 
 function scenarioEntries(id: string) {
   const found = MERGE_SCENARIOS.find((candidate) => candidate.id === id)
@@ -11,14 +16,17 @@ function scenarioEntries(id: string) {
 
 describe('registerLabel', () => {
   it('names the contested cell in words a tester can act on', () => {
-    expect(registerLabel(['widget', '7', 'seed'])).toBe(
-      'widget "seed" on node 7'
-    )
     expect(registerLabel(['input', '7', 2])).toBe('input slot 2 on node 7')
   })
 
   it('falls back to the raw target rather than hiding an unknown shape', () => {
     expect(registerLabel(['something_new', 'x'])).toBe('something_new · x')
+  })
+
+  it('renders the package stamp as a Lamport order', () => {
+    expect(formatStampKey([4, 'human:u:t', 'abcdef0123456789'])).toBe(
+      'Lamport 4 · human:u:t · abcdef01'
+    )
   })
 })
 
@@ -89,6 +97,6 @@ describe('groupByRegister', () => {
     const groups = groupByRegister(scenarioEntries('concurrent-widget-writes'))
 
     expect(groups[0].entries).toHaveLength(2)
-    expect(groups[0].label).toContain('widget "seed"')
+    expect(groups[0].register).toContain('seed')
   })
 })

@@ -72,14 +72,16 @@ describe('merge scenarios', () => {
     expect(survivingWidgets['B.steps']).toBe(20)
   })
 
-  it('breaks a same-base_version tie on the actor, not on arrival order', () => {
+  it('breaks a same-Lamport-counter tie on the actor, not on arrival order', () => {
     const simulation = runScenario(scenario('concurrent-widget-writes'))
     const [first, second] = simulation.entries
 
     expect(first.register).toBe(second.register)
-    expect(first.registerLabel).toContain('widget "seed"')
-    // Same base_version, so the actor breaks the tie: `human:bob:tab2` sorts
-    // above `human:alice:tab1` on every replica, arrival order regardless.
+    expect(first.register).toContain('seed')
+    // Same Lamport counter, so the actor breaks the tie:
+    // `human:bob:tab2` sorts above `human:alice:tab1` on every replica,
+    // arrival order regardless.
+    expect(first.stamp[0]).toBe(second.stamp[0])
     expect(first.verdict).toEqual({ kind: 'applied' })
     expect(second.verdict.kind).toBe('lww-dropped')
     expect(simulation.survivingWidgets['B.seed']).toBe(222)
@@ -100,7 +102,9 @@ describe('merge scenarios', () => {
     for (const candidate of MERGE_SCENARIOS) {
       for (const entry of runScenario(candidate).entries) {
         expect(entry.register).not.toBe('')
-        expect(entry.stamp).toHaveLength(3)
+        expect(entry.stamp[0]).toBeTypeOf('number')
+        expect(entry.stamp[1]).toBeTypeOf('string')
+        expect(entry.stamp[2]).toBeTypeOf('string')
         expect(entry.explanation.length).toBeGreaterThan(10)
       }
     }

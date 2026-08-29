@@ -3,16 +3,19 @@
  * report, per op, what the document decided and why.
  *
  * The point is that this is not a model of the merge rules — it IS the merge
- * rules. `applyOps` here is byte-for-byte the function the cloud doc host
- * runs, so a verdict shown in the panel is the verdict production would
- * produce for that arrival order. A simulator that merely *described* the
- * semantics would drift from them the first time the pin moved, and a tester
- * shown a drifted explanation is worse off than one shown nothing.
+ * rules. The pinned `applyOps` here is byte-for-byte the function the cloud
+ * doc host runs, and the fixture envelopes use the package's direct Lamport
+ * counter helper. A verdict shown in the panel is therefore the verdict
+ * production would produce for that arrival order. A simulator that merely
+ * *described* the semantics would drift from them the first time the pin
+ * moved, and a tester shown a drifted explanation is worse off than one shown
+ * nothing.
  *
  * Everything is local and synchronous: no socket, no backend, no shared doc.
  */
 import {
   applyOps,
+  freezeLamportEnvelope,
   hasAppliedOp,
   hasNode,
   mint,
@@ -31,7 +34,7 @@ import type {
 import type { MergeTraceEntry, MergeVerdict } from './mergeTrace'
 import { opNodeId, traceEntry } from './mergeTrace'
 import type { GraphOperation } from './graphOperations'
-import { mintWireOps } from './opEnvelope'
+import { mintOpId } from './opEnvelope'
 
 export interface MergeScenario {
   id: string
@@ -233,13 +236,14 @@ const SEED_WORKFLOW: WorkflowJSON = {
 }
 
 /**
- * Mint one scenario op through the SAME envelope code the real write leg
- * uses, so a scenario cannot accidentally demonstrate stamp semantics the
- * production sender would never produce.
+ * Mint one scenario op through the shared package's Lamport envelope helper.
+ * The package's direct Lamport contract deliberately carries the counter in
+ * the existing numeric stamp slot; using the helper here keeps the fixture
+ * and the host applier on the same contract without inventing a local merge
+ * model.
  */
-function op(body: GraphOperation, actor: string, baseVersion: number): Op {
-  const [minted] = mintWireOps([body], { actor, baseVersion })
-  return minted
+function op(body: GraphOperation, actor: string, counter: number): Op {
+  return freezeLamportEnvelope(body, actor, mintOpId(), counter) as Op
 }
 
 const ALICE = 'human:alice:tab1'
