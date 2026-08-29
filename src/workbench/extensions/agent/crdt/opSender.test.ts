@@ -96,6 +96,43 @@ describe('createOpSender', () => {
     }
   })
 
+  it('survives a reload without resetting the persisted Lamport counter', async () => {
+    sender.enqueue([addNode(1)])
+    await flushMint()
+
+    const firstCounter = sent[0].ops[0].base_version
+    expect(firstCounter).toBe(42)
+
+    sender.detach()
+    sent = []
+    settled = []
+    resultListener = null
+    sender = createOpSender({
+      sendOps: (workflowId, tab, ops) => {
+        sent.push({ workflowId, tab, ops })
+        return true
+      },
+      onOpsResult: (listener) => {
+        resultListener = listener
+        return () => {
+          resultListener = null
+        }
+      },
+      workflowId: () => WORKFLOW,
+      tab: TAB,
+      actor: () => ACTOR,
+      clockStore: createLamportClockStore(window.localStorage),
+      clockIdentity: () => CLOCK_IDENTITY,
+      observedCounters: () => [41],
+      onBatchSettled: (outcome) => settled.push(outcome)
+    })
+
+    sender.enqueue([addNode(2)])
+    await flushMint()
+
+    expect(sent[0].ops[0].base_version).toBeGreaterThan(firstCounter)
+  })
+
   it('serializes batches: the next sends only after the result settles the first', async () => {
     sender.enqueue([addNode(1)])
     sender.enqueue([addNode(2)])
