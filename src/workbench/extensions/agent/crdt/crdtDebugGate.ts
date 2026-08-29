@@ -3,9 +3,11 @@
  *
  * The instrument used to be gated on `import.meta.env.DEV` alone, which is the
  * wrong audience: the people who need it are product testers driving a
- * STAGING build, where `DEV` is false. Opt-in is therefore explicit and
- * sticky — `?crdtDebug=1` turns it on for the origin until `?crdtDebug=0`
- * turns it off — so a tester can be handed a link rather than a build.
+ * STAGING build, where `DEV` is false. The private-alpha decision is to keep
+ * this URL/storage opt-in behind the existing agent product gate; it is not a
+ * second product flag and cannot reveal the panel when the agent feature is
+ * disabled. The future `s7-flag-1` tester allowlist remains a release
+ * dependency before broad production exposure.
  *
  * Verbosity is a separate axis on purpose. Turning the panel on should not
  * also flood the console: `?crdtDebug=trace` opts into the per-frame chatter,
@@ -26,6 +28,20 @@ export const CRDT_LOG_LEVELS = ['warn', 'info', 'debug', 'trace'] as const
 export type CrdtLogLevel = (typeof CRDT_LOG_LEVELS)[number]
 
 const DEFAULT_LEVEL: CrdtLogLevel = 'info'
+
+/**
+ * Resolve the FE debug-panel visibility decision at the composition seam.
+ * `productGateEnabled` is the existing `agent-in-app-experience` gate owned by
+ * the agent panel store. The second conjunct is the current private-alpha
+ * query/storage override. This stays separate from ADR-018's CRDT WebSocket
+ * gate, which is a server-surface decision.
+ */
+export function resolveFollowerEnabled(
+  productGateEnabled: boolean,
+  debugOverrideEnabled = isCrdtDebugEnabled()
+): boolean {
+  return productGateEnabled && debugOverrideEnabled
+}
 
 /**
  * Cached because {@link isLevelEnabled} runs on the CRDT hot path — once per

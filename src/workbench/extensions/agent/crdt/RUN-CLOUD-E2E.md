@@ -24,7 +24,12 @@ follower is read-only: it never writes the shared doc (host is the sole writer).
 Any `*.comfy.org` `DEV_SERVER_COMFYUI_URL` auto-selects the cloud distribution and
 proxies `/api` + `/ws` to that host, so no other flag is needed to retarget a
 different ephemeral. The follower itself has no dedicated flag: it mounts with the
-agent panel, so the panel's product flag is the only gate.
+agent panel, so the existing `agent-in-app-experience` product gate must first
+mount the agent panel. Inside that product-gated panel, the debug instrument
+additionally requires the private-alpha `DEV` or query/storage opt-in
+(`?crdtDebug=1`). This is intentionally separate from ADR-018's CRDT WebSocket
+gate. The `s7-flag-1` tester allowlist remains required before this URL/storage
+decision is used for broad production exposure.
 
 ## Verify
 

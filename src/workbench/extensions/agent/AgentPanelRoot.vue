@@ -90,7 +90,10 @@ import type { OpenTabsSnapshot } from './services/agent/agentRestClient'
 import { createAgentEventSource } from './services/agent/agentEventSource'
 import { useAgentChatHistoryStore } from './stores/agent/agentChatHistoryStore'
 import { useAgentPanelStore } from './stores/agent/agentPanelStore'
-import { isCrdtDebugEnabled } from './crdt/crdtDebugGate'
+import {
+  isCrdtDebugEnabled,
+  resolveFollowerEnabled
+} from './crdt/crdtDebugGate'
 import { useAgentCrdtFollower } from './crdt/useAgentCrdtFollower'
 
 const { t } = useI18n()
@@ -370,10 +373,13 @@ const {
 // session's bound workflow and projects doc updates onto the canvas.
 const { status: crdtStatus, debugSnapshot: crdtDebugSnapshot } =
   useAgentCrdtFollower(boundWorkflowId, graphMutations)
-// Dev instrument (slice-02 classification). Gated on DEV *or* an explicit
-// ?crdtDebug=1 opt-in, because the people who need it are testers on a
-// staging build, where DEV is false. An explicit opt-out beats both.
-const isCrdtDevPanelEnabled = isCrdtDebugEnabled()
+// Private-alpha instrument decision: the existing agent product gate owns
+// panel exposure, while DEV/query/storage controls debug opt-in. The query
+// override is never sufficient to reveal the panel on its own.
+const isCrdtDevPanelEnabled = resolveFollowerEnabled(
+  agentPanelStore.enabled,
+  isCrdtDebugEnabled()
+)
 
 // The resumed turn's own workflow outlives a panel remount (the session
 // binds it at ack; only newChat/loadThread reset it), while the active tab
