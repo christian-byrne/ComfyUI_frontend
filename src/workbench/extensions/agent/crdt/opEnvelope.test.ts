@@ -11,7 +11,7 @@ import {
   mintWireOps
 } from './opEnvelope'
 
-const MINT = { actor: 'human:test-user:tab-1', baseVersion: 7 }
+const MINT = { actor: 'human:test-user:tab-1', lamportCounter: 7 }
 
 // The mint seam's vocabulary is the five implemented kinds only: the deferred
 // reset_doc stays outside GraphOperation (plan §2), pinned at compile time -

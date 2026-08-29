@@ -16,8 +16,8 @@ export const WIRE_MAX_BATCH_BYTES = 4 * 1024 * 1024
 
 export interface MintContext {
   actor: Actor
-  /** Doc version the ops are minted against (`base_version` on every op). */
-  baseVersion: number
+  /** Persisted Lamport counter written to `base_version` on the wire. */
+  lamportCounter: number
 }
 
 /** uuid4 hex: 32 lowercase `[0-9a-f]` chars (vocabulary §8.2). */
@@ -27,14 +27,14 @@ export function mintOpId(): string {
 
 function withEnvelope<T extends GraphOperation>(
   operation: T,
-  { actor, baseVersion }: MintContext
+  { actor, lamportCounter }: MintContext
 ): T & { op_id: string; actor: Actor; base_version: number; stamp: Stamp } {
   return {
     ...operation,
     op_id: mintOpId(),
     actor,
-    base_version: baseVersion,
-    stamp: [baseVersion, actor]
+    base_version: lamportCounter,
+    stamp: [lamportCounter, actor]
   }
 }
 

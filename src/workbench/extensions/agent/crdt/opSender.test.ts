@@ -2,12 +2,18 @@ import type { Op } from '@comfyorg/comfy-multi-player'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { GraphOperation } from './graphOperations'
+import { createLamportClockStore } from './lamportClockStore'
 import { createOpSender } from './opSender'
 import type { BatchOutcome, OpsResultView } from './opSender'
 
 const WORKFLOW = 'wf-1'
 const TAB = 'tab-1'
 const ACTOR = 'human:test-user:tab-1'
+const CLOCK_IDENTITY = {
+  workflow_id: WORKFLOW,
+  lineage_id: 'lineage-1',
+  producer_id: ACTOR
+}
 
 function addNode(id: number): GraphOperation {
   return {
@@ -27,6 +33,10 @@ describe('createOpSender', () => {
   let boundWorkflow: string | null
   let sender: ReturnType<typeof createOpSender>
 
+  async function flushMint(): Promise<void> {
+    for (let index = 0; index < 6; index++) await Promise.resolve()
+  }
+
   function ackInFlight(): void {
     const last = sent[sent.length - 1]
     resultListener?.({
@@ -43,6 +53,7 @@ describe('createOpSender', () => {
     resultListener = null
     transportUp = true
     boundWorkflow = WORKFLOW
+    window.localStorage.clear()
     sender = createOpSender({
       sendOps: (workflowId, tab, ops) => {
         if (!transportUp) return false
@@ -58,7 +69,9 @@ describe('createOpSender', () => {
       workflowId: () => boundWorkflow,
       tab: TAB,
       actor: () => ACTOR,
-      baseVersion: () => 41,
+      clockStore: createLamportClockStore(window.localStorage),
+      clockIdentity: () => CLOCK_IDENTITY,
+      observedCounters: () => [41],
       onBatchSettled: (outcome) => settled.push(outcome)
     })
   })
@@ -67,8 +80,9 @@ describe('createOpSender', () => {
     sender.detach()
   })
 
-  it('mints once and sends a doc_ops batch with the wire envelope', () => {
+  it('mints once and sends a doc_ops batch with the wire envelope', async () => {
     sender.enqueue([addNode(1), addNode(2)])
+    await flushMint()
 
     expect(sent).toHaveLength(1)
     expect(sent[0].workflowId).toBe(WORKFLOW)
@@ -77,18 +91,20 @@ describe('createOpSender', () => {
     for (const op of sent[0].ops) {
       expect(op.op_id).toMatch(/^[0-9a-f]{32}$/)
       expect(op.actor).toBe(ACTOR)
-      expect(op.base_version).toBe(41)
-      expect(op.stamp).toEqual([41, ACTOR])
+      expect(op.base_version).toBe(42)
+      expect(op.stamp).toEqual([42, ACTOR])
     }
   })
 
-  it('serializes batches: the next sends only after the result settles the first', () => {
+  it('serializes batches: the next sends only after the result settles the first', async () => {
     sender.enqueue([addNode(1)])
     sender.enqueue([addNode(2)])
+    await flushMint()
     expect(sent).toHaveLength(1)
     expect(sender.pending()).toBe(2)
 
     ackInFlight()
+    await flushMint()
 
     expect(sent).toHaveLength(2)
     expect(settled).toHaveLength(1)
@@ -99,9 +115,10 @@ describe('createOpSender', () => {
     expect(settled).toHaveLength(2)
   })
 
-  it('retries a down transport with the SAME minted ops and never re-mints', () => {
+  it('retries a down transport with the SAME minted ops and never re-mints', async () => {
     transportUp = false
     sender.enqueue([addNode(1)])
+    await flushMint()
     expect(sent).toHaveLength(0)
 
     transportUp = true
@@ -118,9 +135,10 @@ describe('createOpSender', () => {
     ).toEqual(firstIds)
   })
 
-  it('settles undeliverable after the transport retry budget', () => {
+  it('settles undeliverable after the transport retry budget', async () => {
     transportUp = false
     sender.enqueue([addNode(1)])
+    await flushMint()
 
     vi.advanceTimersByTime(500 * 6)
 
@@ -129,16 +147,18 @@ describe('createOpSender', () => {
     ])
   })
 
-  it('drops a batch as undeliverable when no doc is bound', () => {
+  it('drops a batch as undeliverable when no doc is bound', async () => {
     boundWorkflow = null
     sender.enqueue([addNode(1)])
+    await flushMint()
 
     expect(sent).toHaveLength(0)
     expect(settled[0].state).toBe('undeliverable')
   })
 
-  it('resends the same ops exactly once after result silence, then reports unacknowledged', () => {
+  it('resends the same ops exactly once after result silence, then reports unacknowledged', async () => {
     sender.enqueue([addNode(1)])
+    await flushMint()
     expect(sent).toHaveLength(1)
 
     vi.advanceTimersByTime(10_000)
@@ -153,8 +173,9 @@ describe('createOpSender', () => {
     ])
   })
 
-  it('a late result after the resend still acknowledges the batch', () => {
+  it('a late result after the resend still acknowledges the batch', async () => {
     sender.enqueue([addNode(1)])
+    await flushMint()
     vi.advanceTimersByTime(10_000)
     expect(sent).toHaveLength(2)
 
@@ -164,8 +185,9 @@ describe('createOpSender', () => {
     expect(settled[0].state).toBe('acknowledged')
   })
 
-  it('splits an oversized enqueue into serialized wire batches', () => {
+  it('splits an oversized enqueue into serialized wire batches', async () => {
     sender.enqueue(Array.from({ length: 300 }, (_, index) => addNode(index)))
+    await flushMint()
 
     expect(sent).toHaveLength(1)
     expect(sent[0].ops).toHaveLength(256)
@@ -175,16 +197,18 @@ describe('createOpSender', () => {
     expect(sent[1].ops).toHaveLength(44)
   })
 
-  it('ignores a result for other ops while a batch is in flight', () => {
+  it('ignores a result for other ops while a batch is in flight', async () => {
     sender.enqueue([addNode(1)])
+    await flushMint()
 
     resultListener?.({ ok: true, applied: ['ffff'.repeat(8)], skipped: [] })
 
     expect(settled).toHaveLength(0)
   })
 
-  it('a late anonymous failure from an unacknowledged batch never settles the next batch', () => {
+  it('a late anonymous failure from an unacknowledged batch never settles the next batch', async () => {
     sender.enqueue([addNode(1)])
+    await flushMint()
     vi.advanceTimersByTime(10_000)
     vi.advanceTimersByTime(10_000)
     expect(settled).toEqual([
@@ -192,6 +216,7 @@ describe('createOpSender', () => {
     ])
 
     sender.enqueue([addNode(2)])
+    await flushMint()
     expect(sent).toHaveLength(3)
 
     resultListener?.({ ok: false, applied: [], skipped: [] })
@@ -202,8 +227,9 @@ describe('createOpSender', () => {
     expect(settled[1].state).toBe('acknowledged')
   })
 
-  it('an identified empty-list failure settles the batch it names via failure.op_id', () => {
+  it('an identified empty-list failure settles the batch it names via failure.op_id', async () => {
     sender.enqueue([addNode(1)])
+    await flushMint()
     const opId = sent[0].ops[0].op_id
 
     resultListener?.({
@@ -217,8 +243,9 @@ describe('createOpSender', () => {
     expect(settled[0].state).toBe('acknowledged')
   })
 
-  it('an identified failure for other ops never settles the in-flight batch', () => {
+  it('an identified failure for other ops never settles the in-flight batch', async () => {
     sender.enqueue([addNode(1)])
+    await flushMint()
 
     resultListener?.({
       ok: false,
@@ -230,8 +257,9 @@ describe('createOpSender', () => {
     expect(settled).toHaveLength(0)
   })
 
-  it('idle late results drain the stale credits so a fresh batch can settle anonymously', () => {
+  it('idle late results drain the stale credits so a fresh batch can settle anonymously', async () => {
     sender.enqueue([addNode(1)])
+    await flushMint()
     vi.advanceTimersByTime(10_000)
     vi.advanceTimersByTime(10_000)
     expect(settled).toHaveLength(1)
@@ -240,14 +268,16 @@ describe('createOpSender', () => {
     resultListener?.({ ok: false, applied: [], skipped: [] })
 
     sender.enqueue([addNode(2)])
+    await flushMint()
     resultListener?.({ ok: false, applied: [], skipped: [] })
 
     expect(settled).toHaveLength(2)
     expect(settled[1].state).toBe('acknowledged')
   })
 
-  it('stops sending after detach', () => {
+  it('stops sending after detach', async () => {
     sender.enqueue([addNode(1)])
+    await flushMint()
     ackInFlight()
     sender.detach()
     sender.enqueue([addNode(2)])

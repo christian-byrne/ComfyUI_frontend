@@ -6,8 +6,9 @@
  * an unchanged resend converges through the applier's idempotency gate).
  *
  * Batches are strictly serialized: one in-flight batch at a time, FIFO, so
- * op order on the wire matches mint order. `base_version` is read at mint
- * time from the follower's last observed sequence.
+ * op order on the wire matches mint order. The Lamport counter is persisted
+ * before the envelope is created, and the follower's latest observed
+ * sequence is fed into the tick as causal context.
  *
  * Outcome handling is deliberately the TODAY contract: `doc_ops_result` is a
  * binary applied/skipped split. The prefix-abort reconcile and per-op
@@ -15,7 +16,12 @@
  * frame upgrade ships (a required backend dependency, recorded on the plan);
  * `onResult` is the seam they will replace.
  */
-import type { Op } from '@comfyorg/comfy-multi-player'
+import { persistLamportTick } from '@comfyorg/comfy-multi-player'
+import type {
+  LamportClockStore,
+  LamportProducerClock,
+  Op
+} from '@comfyorg/comfy-multi-player'
 
 import type { GraphOperation } from './graphOperations'
 import { chunkWireOps, mintWireOps } from './opEnvelope'
@@ -42,8 +48,12 @@ export interface OpSenderDeps {
   tab: string
   /** `human:<user>:<tab>` (vocabulary §7). */
   actor(): string
-  /** The follower's last observed doc sequence (stamps `base_version`). */
-  baseVersion(): number
+  /** Durable producer clock storage. */
+  clockStore: LamportClockStore
+  /** Stable identity for the durable producer clock. */
+  clockIdentity(): Omit<LamportProducerClock, 'counter'>
+  /** Counters observed from the authoritative document since the last tick. */
+  observedCounters(): readonly number[]
   /**
    * Terminal per-batch report: 'acknowledged' carries the host's result;
    * 'unacknowledged' means one resend after silence also drew no result;
@@ -74,8 +84,10 @@ interface InFlight {
 
 export function createOpSender(deps: OpSenderDeps): OpSender {
   const queue: Op[][] = []
+  const pendingMints: GraphOperation[][] = []
   let inFlight: InFlight | null = null
   let detached = false
+  let minting = false
   // Late-result credits: a batch that settled 'unacknowledged' was
   // transmitted twice, so up to two of its results may still arrive - as
   // ANONYMOUS failures (empty id lists, no failure op_id) they are
@@ -145,6 +157,36 @@ export function createOpSender(deps: OpSenderDeps): OpSender {
     transmit(batch, 0)
   }
 
+  function pumpMint(): void {
+    if (detached || minting) return
+    const operations = pendingMints.shift()
+    if (!operations) return
+
+    minting = true
+    void persistLamportTick(
+      deps.clockStore,
+      deps.clockIdentity(),
+      deps.observedCounters(),
+      { requireSeed: true }
+    )
+      .then((lamportCounter) => {
+        if (detached) return
+        const minted = mintWireOps(operations, {
+          actor: deps.actor(),
+          lamportCounter
+        })
+        queue.push(...chunkWireOps(minted))
+        pump()
+      })
+      .catch(() => {
+        if (!detached) deps.onBatchSettled({ state: 'undeliverable', ops: [] })
+      })
+      .finally(() => {
+        minting = false
+        pumpMint()
+      })
+  }
+
   const unsubscribe = deps.onOpsResult((result) => {
     if (!inFlight) {
       // A late result with no batch waiting: drain a credit if one is
@@ -171,21 +213,23 @@ export function createOpSender(deps: OpSenderDeps): OpSender {
   return {
     enqueue(operations) {
       if (detached || operations.length === 0) return
-      const minted = mintWireOps(operations, {
-        actor: deps.actor(),
-        baseVersion: deps.baseVersion()
-      })
-      queue.push(...chunkWireOps(minted))
-      pump()
+      pendingMints.push(operations)
+      pumpMint()
     },
     pending() {
-      return queue.length + (inFlight ? 1 : 0)
+      return (
+        queue.length +
+        (inFlight ? 1 : 0) +
+        pendingMints.length +
+        (minting ? 1 : 0)
+      )
     },
     detach() {
       detached = true
       if (inFlight?.timer) clearTimeout(inFlight.timer)
       inFlight = null
       queue.length = 0
+      pendingMints.length = 0
       unsubscribe()
     }
   }
