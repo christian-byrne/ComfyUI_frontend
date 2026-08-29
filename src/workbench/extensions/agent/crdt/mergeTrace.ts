@@ -115,14 +115,14 @@ export function opNodeId(op: WireOp): string | null {
  * A human label for the contested cell.
  *
  * `writeTarget` returns the applier's own tuple; rendering it verbatim is
- * honest but unreadable, so each shape gets a sentence and anything
- * unrecognised falls back to the raw tuple rather than being hidden.
+ * honest but unreadable, so each shape gets a sentence. The incarnation
+ * token is part of the widget register identity and must remain visible.
  */
 export function registerLabel(target: readonly unknown[]): string {
   const [kind, ...rest] = target.map((part) => String(part))
   switch (kind) {
     case 'widget':
-      return `widget "${rest[1]}" on node ${rest[0]}`
+      return `widget "${rest[2]}" on node ${rest[0]} (incarnation ${rest[1]})`
     case 'input':
       return `input slot ${rest[1]} on node ${rest[0]}`
     case 'node':

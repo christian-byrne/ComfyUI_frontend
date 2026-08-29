@@ -16,11 +16,20 @@ function scenarioEntries(id: string) {
 
 describe('registerLabel', () => {
   it('names the contested cell in words a tester can act on', () => {
+    expect(registerLabel(['widget', '7', 'life-1', 'seed'])).toBe(
+      'widget "seed" on node 7 (incarnation life-1)'
+    )
     expect(registerLabel(['input', '7', 2])).toBe('input slot 2 on node 7')
   })
 
   it('falls back to the raw target rather than hiding an unknown shape', () => {
     expect(registerLabel(['something_new', 'x'])).toBe('something_new · x')
+  })
+
+  it('keeps node incarnations distinct in widget labels', () => {
+    expect(registerLabel(['widget', '7', 'life-1', 'seed'])).not.toBe(
+      registerLabel(['widget', '7', 'life-2', 'seed'])
+    )
   })
 
   it('renders the package stamp as a Lamport order', () => {
@@ -98,5 +107,28 @@ describe('groupByRegister', () => {
 
     expect(groups[0].entries).toHaveLength(2)
     expect(groups[0].register).toContain('seed')
+  })
+
+  it('does not combine the same widget name across node incarnations', () => {
+    const [entry] = scenarioEntries('concurrent-widget-writes')
+    const life1 = {
+      ...entry,
+      register: '["widget","B","life-1","seed"]',
+      registerLabel: registerLabel(['widget', 'B', 'life-1', 'seed'])
+    }
+    const life2 = {
+      ...entry,
+      index: entry.index + 1,
+      register: '["widget","B","life-2","seed"]',
+      registerLabel: registerLabel(['widget', 'B', 'life-2', 'seed'])
+    }
+
+    const groups = groupByRegister([life1, life2])
+
+    expect(groups).toHaveLength(2)
+    expect(groups.map((group) => group.label)).toEqual([
+      'widget "seed" on node B (incarnation life-1)',
+      'widget "seed" on node B (incarnation life-2)'
+    ])
   })
 })
