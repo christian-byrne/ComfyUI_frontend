@@ -115,7 +115,8 @@ const splitAttachments = computed(() => {
     </div>
     <div
       v-if="text"
-      class="text-agent-fg-subtle pointer-events-none flex opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 touch:pointer-events-auto touch:opacity-100"
+      data-testid="message-actions"
+      class="text-agent-fg-subtle flex opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 touch:opacity-100"
     >
       <AgentTooltip v-if="editable" :label="t('g.edit')">
         <button

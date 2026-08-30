@@ -145,6 +145,9 @@ describe('UserMessage', () => {
     const { emitted } = renderMessage({ text: prompt, editable: true })
 
     const editButton = screen.getByRole('button', { name: t('g.edit') })
+    expect(screen.getByTestId('message-actions')).not.toHaveClass(
+      'pointer-events-none'
+    )
     await user.hover(editButton)
     expect(
       await screen.findByRole('tooltip', { hidden: true })
