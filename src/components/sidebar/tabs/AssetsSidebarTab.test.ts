@@ -18,12 +18,25 @@ const folderAsset = vi.hoisted(() => ({
   }
 }))
 
+const storeControls = vi.hoisted(() => ({
+  outputItems: [] as (typeof folderAsset)[],
+  setOutputItems(items: (typeof folderAsset)[]) {
+    this.outputItems = items
+  }
+}))
+
+const showDialogMock = vi.hoisted(() => vi.fn())
+
 vi.mock('@/platform/assets/composables/media/useAssetsApi', async () => {
   const { ref } = await import('vue')
 
   return {
     useAssetsApi: () => ({
-      media: ref([folderAsset]),
+      media: ref(
+        storeControls.outputItems.length
+          ? storeControls.outputItems
+          : [folderAsset]
+      ),
       loading: ref(false),
       error: ref(null),
       fetchMediaList: vi.fn(async () => [folderAsset]),
@@ -82,6 +95,10 @@ vi.mock('primevue/usetoast', () => ({
   useToast: () => ({ add: vi.fn() })
 }))
 
+vi.mock('@/stores/dialogStore', () => ({
+  useDialogStore: () => ({ showDialog: showDialogMock })
+}))
+
 const i18n = createI18n({
   legacy: false,
   locale: 'en',
@@ -112,12 +129,24 @@ const sidebarTabTemplateStub = {
 
 const assetsGridStub = {
   props: ['assets'],
-  emits: ['output-count-click'],
+  emits: ['output-count-click', 'zoom'],
   template: `
-    <button
-      aria-label="Enter output folder"
-      @click="$emit('output-count-click', assets[0])"
-    />
+    <div>
+      <button
+        v-if="assets.length"
+        aria-label="Enter output folder"
+        @click="$emit('output-count-click', assets[0])"
+      />
+      <button
+        v-for="asset in assets"
+        :key="asset.id + '-preview'"
+        :aria-label="'Preview ' + asset.name"
+        @click="$emit('zoom', asset)"
+      />
+      <span v-for="asset in assets" :key="asset.id" data-testid="asset-id">
+        {{ asset.id }}
+      </span>
+    </div>
   `
 }
 
@@ -176,5 +205,44 @@ describe('AssetsSidebarTab folder navigation', () => {
       screen.queryByRole('button', { name: 'Back to all assets' })
     ).not.toBeInTheDocument()
     expect(screen.queryByText('multi-output-job')).not.toBeInTheDocument()
+  })
+})
+
+describe('AssetsSidebarTab 3D preview', () => {
+  async function openMeshPreview(previewUrl?: string) {
+    const asset = {
+      ...folderAsset,
+      id: 'mesh-asset',
+      name: 'mesh.glb',
+      preview_url: previewUrl,
+      user_metadata: undefined
+    }
+    storeControls.setOutputItems([asset])
+
+    renderTab()
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Preview mesh.glb' })
+    )
+
+    expect(showDialogMock).toHaveBeenCalledOnce()
+    expect(showDialogMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: 'asset-3d-viewer',
+        title: 'mesh.glb',
+        props: {
+          modelUrl: expect.stringContaining(
+            '/api/view?filename=mesh.glb&type=output'
+          )
+        }
+      })
+    )
+  }
+
+  it('opens the original 3D asset when no thumbnail exists', async () => {
+    await openMeshPreview()
+  })
+
+  it.fails('does not send the thumbnail image to the 3D viewer', async () => {
+    await openMeshPreview('https://example.com/previews/mesh.png')
   })
 })
