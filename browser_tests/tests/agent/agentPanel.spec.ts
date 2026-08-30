@@ -102,8 +102,8 @@ test.describe('In-App Agent panel', { tag: '@cloud' }, () => {
         'The first graph edit is complete. I will check the remaining work.'
       )
     ).toBeVisible()
-    await expect(firstSummary).toHaveAttribute('aria-expanded', 'true')
-    await expect(panel.getByText('Set widget')).toBeVisible()
+    await expect(firstSummary).toHaveAttribute('aria-expanded', 'false')
+    await expect(panel.getByText('Set widget')).toBeHidden()
 
     pushEvent(ws, RESUMED_THINKING_EVENT)
     await expect(
