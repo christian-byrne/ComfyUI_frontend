@@ -1,6 +1,9 @@
 import type { Op } from '@comfyorg/comfy-multi-player'
 
 const DOC_PROTOCOL_VERSION = 1
+const MAX_DOC_UPDATE_BYTES = 8 * 1024 * 1024
+const BASE64_PATTERN =
+  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
 
 export interface DocOp {
   op_id: string
@@ -101,9 +104,20 @@ interface WireData {
   expires_at?: unknown
 }
 
-function decodeBase64(value: string): Uint8Array {
-  const binary = atob(value)
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0))
+function decodeBase64(value: string): Uint8Array | null {
+  if (value.length === 0 || value.length % 4 !== 0) return null
+
+  const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0
+  const decodedSize = (value.length / 4) * 3 - padding
+  if (decodedSize > MAX_DOC_UPDATE_BYTES) return null
+  if (!BASE64_PATTERN.test(value)) return null
+
+  try {
+    const binary = atob(value)
+    return Uint8Array.from(binary, (character) => character.charCodeAt(0))
+  } catch {
+    return null
+  }
 }
 
 export function encodeBase64(value: Uint8Array): string {
@@ -138,12 +152,15 @@ export function parseServerDocFrame(value: unknown): ServerDocFrame | null {
     typeof data.seq === 'number' &&
     typeof data.update_b64 === 'string'
   ) {
+    const update = decodeBase64(data.update_b64)
+    if (update === null) return null
+
     return {
       type: frame.type,
       data: {
         workflowId: data.workflow_id,
         seq: data.seq,
-        update: decodeBase64(data.update_b64),
+        update,
         ...(typeof data.actor === 'string' && { actor: data.actor }),
         ...(Array.isArray(data.op_ids) && {
           opIds: data.op_ids.filter(
