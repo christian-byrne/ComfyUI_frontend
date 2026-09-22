@@ -1361,6 +1361,23 @@ async function refreshHistory(): Promise<void> {
   }
 }
 
+const provisionalTitle = ref<string>()
+
+watch(
+  threadId,
+  (id, previousId) => {
+    if (
+      id === null ||
+      previousId !== null ||
+      provisionalTitle.value === undefined
+    )
+      return
+    history.rename(id, provisionalTitle.value)
+    provisionalTitle.value = undefined
+  },
+  { immediate: true }
+)
+
 void refreshHistory()
 
 const currentChatReady = computed(
@@ -1384,9 +1401,9 @@ async function onSelectHistory(
   id: string,
   isCurrent: () => boolean
 ): Promise<boolean> {
+  provisionalTitle.value = undefined
   if (currentChatReady.value && id === threadId.value)
     return onShowTarget(isCurrent, warnRestoreFailed)
-
   composerStore.invalidateSubmission()
   cancelWorkflowSelection()
   agentPanelStore.beginWorkflowRestoration()
@@ -1537,7 +1554,8 @@ function onStop(method: AgentStopMethod): void {
 }
 
 function onRenameChat(title: string): void {
-  if (threadId.value !== null) history.rename(threadId.value, title)
+  if (threadId.value === null) provisionalTitle.value = title
+  else history.rename(threadId.value, title)
 }
 
 function onRenameHistory(id: string, title: string): void {
@@ -1554,6 +1572,7 @@ function onDeleteHistory(id: string): void {
 }
 
 function onNewChat(source?: 'new_chat_button' | 'history_delete'): void {
+  provisionalTitle.value = undefined
   composerStore.invalidateSubmission()
   cancelWorkflowSelection()
   canvasStore.stopNodePicking()
@@ -1866,7 +1885,7 @@ async function onPanelDrop(event: DragEvent): Promise<void> {
       :select-history="onSelectHistory"
       :current-chat-ready="currentChatReady"
       :session-id="threadId"
-      :custom-title="history.titleFor(threadId)"
+      :custom-title="history.titleFor(threadId) ?? provisionalTitle"
       :selection-tags="selectionTags"
       :node-reference-disabled-reason="nodeReferenceDisabledReason"
       :select-workflow-reference="onSelectWorkflowReference"
