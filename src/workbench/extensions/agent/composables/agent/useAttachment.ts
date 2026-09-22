@@ -173,6 +173,13 @@ export function useAttachment(options: UseAttachmentOptions) {
     return true
   }
 
+  async function validateFile(file: File): Promise<boolean> {
+    if (!options.validate) return true
+    const valid = await options.validate(file)
+    if (!valid) options.onInvalid?.(file)
+    return valid
+  }
+
   // The file's declared size/type and the failure's shape (status code,
   // timeout, abort) are safe, bounded context. The caught error's own
   // message/stack are not reported: they can carry a local file path (e.g. a
@@ -311,9 +318,8 @@ export function useAttachment(options: UseAttachmentOptions) {
         options.remove(id)
         return 'failed'
       }
-      if (options.validate && !(await options.validate(file))) {
+      if (!(await validateFile(file))) {
         options.remove(id)
-        options.onInvalid?.(file)
         return 'invalid'
       }
       if (!(await uploadStagedFile(id, file))) return 'failed'
@@ -346,10 +352,7 @@ export function useAttachment(options: UseAttachmentOptions) {
     const staged: Array<{ file: File; id: string }> = []
     for (const file of files) {
       if (isTooLarge(file)) continue
-      if (options.validate && !(await options.validate(file))) {
-        options.onInvalid?.(file)
-        continue
-      }
+      if (!(await validateFile(file))) continue
       const sourceKey = `file:${JSON.stringify([file.name, file.size, file.lastModified, file.type])}`
       const id = stage(file.name, sourceKey)
       if (!id) duplicates.push(file.name)
