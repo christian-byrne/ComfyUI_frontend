@@ -137,6 +137,7 @@ export function useAttachment(options: UseAttachmentOptions) {
   const contentHashes = new WeakMap<File, Promise<string>>()
   let uploadGeneration = 0
   let activeUploads = 0
+  let cancellationGeneration = 0
 
   function contentHashFor(file: File): Promise<string> {
     const cached = contentHashes.get(file)
@@ -299,6 +300,7 @@ export function useAttachment(options: UseAttachmentOptions) {
   }
 
   function cancelAllUploads(): void {
+    cancellationGeneration += 1
     for (const id of Array.from(pending)) cancelUpload(id)
   }
 
@@ -348,11 +350,14 @@ export function useAttachment(options: UseAttachmentOptions) {
   }
 
   async function addFiles(files: Iterable<File>): Promise<boolean> {
+    const generation = cancellationGeneration
     const duplicates: string[] = []
     const staged: Array<{ file: File; id: string }> = []
     for (const file of files) {
       if (isTooLarge(file)) continue
-      if (!(await validateFile(file))) continue
+      const valid = await validateFile(file)
+      if (generation !== cancellationGeneration) return false
+      if (!valid) continue
       const sourceKey = `file:${JSON.stringify([file.name, file.size, file.lastModified, file.type])}`
       const id = stage(file.name, sourceKey)
       if (!id) duplicates.push(file.name)
