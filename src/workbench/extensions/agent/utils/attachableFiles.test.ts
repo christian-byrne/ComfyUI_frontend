@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest'
 import {
   AGENT_ATTACH_ACCEPT,
   attachableClipboardFiles,
-  isAgentAttachable
+  isAgentAttachable,
+  isValidAgentAttachment
 } from './attachableFiles'
 
 /* Dragged files often carry no MIME (glb, md) or a generic one, so the
@@ -94,5 +95,34 @@ describe('attachableClipboardFiles', () => {
 
   it('is empty for a text-only clipboard, leaving the paste to the editor', () => {
     expect(attachableClipboardFiles(clipboardOf())).toEqual([])
+  })
+})
+
+describe('isValidAgentAttachment', () => {
+  it.for([
+    { name: 'clip.mp4', bytes: [0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70] },
+    { name: 'clip.mov', bytes: [0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70] },
+    { name: 'clip.webm', bytes: [0x1a, 0x45, 0xdf, 0xa3] },
+    { name: 'clip.mkv', bytes: [0x1a, 0x45, 0xdf, 0xa3] },
+    {
+      name: 'clip.avi',
+      bytes: [0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x41, 0x56, 0x49, 0x20]
+    }
+  ])('accepts a valid $name container signature', async ({ name, bytes }) => {
+    await expect(
+      isValidAgentAttachment(new File([new Uint8Array(bytes)], name))
+    ).resolves.toBe(true)
+  })
+
+  it('rejects text renamed to an mp4 file', async () => {
+    await expect(
+      isValidAgentAttachment(new File(['not a video'], 'renamed.mp4'))
+    ).resolves.toBe(false)
+  })
+
+  it('does not inspect non-video attachments', async () => {
+    await expect(
+      isValidAgentAttachment(new File(['plain text'], 'notes.txt'))
+    ).resolves.toBe(true)
   })
 })

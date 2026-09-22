@@ -37,7 +37,11 @@ import { useAppMode } from '@/composables/useAppMode'
 import { MIME_ASSET_INFO } from '@/platform/assets/schemas/mediaAssetSchema'
 import { fetchDroppedAsset, getDroppedAsset } from '@/utils/eventUtils'
 import { useAssetsStore } from '@/stores/assetsStore'
-import { AGENT_ATTACH_ACCEPT, isAgentAttachable } from './utils/attachableFiles'
+import {
+  AGENT_ATTACH_ACCEPT,
+  isAgentAttachable,
+  isValidAgentAttachment
+} from './utils/attachableFiles'
 import { getNodeByLocatorId } from '@/utils/graphTraversalUtil'
 // oxlint-disable-next-line comfy/no-restricted-paths
 import { useCanvasStore } from '@/renderer/core/canvas/canvasStore'
@@ -1640,6 +1644,7 @@ const assetsStore = useAssetsStore()
 let inputAssetRefresh: Promise<unknown> = Promise.resolve()
 
 const attachment = useAttachment({
+  validate: isValidAgentAttachment,
   upload: async (file, signal) => {
     const uploaded = await rest.uploadImage(file, file.name, signal)
     const filename = uploaded.name ?? file.name
@@ -1667,6 +1672,8 @@ const attachment = useAttachment({
   // A rejected file is the user's problem to fix, not an agent failure, so it
   // must not raise the server-error overlay.
   onError: (message) => toast.warning(message, { duration: 5000 }),
+  onInvalid: () =>
+    toast.warning(t('agent.assetNotAttachable'), { duration: 5000 }),
   onDuplicate: notifyDuplicateAttachments,
   stage: composerStore.addAttachment,
   update: composerStore.updateAttachment,

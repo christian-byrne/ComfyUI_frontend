@@ -39,9 +39,11 @@ type DeferredFileResult =
 
 export interface UseAttachmentOptions {
   upload: (file: File, signal: AbortSignal) => Promise<UploadResult>
+  validate?: (file: File) => Promise<boolean>
   uploadTimeoutMs?: number
   maxBytes?: (file: File) => number
   onError?: (message: string) => void
+  onInvalid?: (file: File) => void
   onUploaded?: () => void
   onDuplicate?: (names: string[]) => void
   stage: (attachment: ComposerAttachment) => boolean
@@ -308,6 +310,11 @@ export function useAttachment(options: UseAttachmentOptions) {
         options.remove(id)
         return 'failed'
       }
+      if (options.validate && !(await options.validate(file))) {
+        options.remove(id)
+        options.onInvalid?.(file)
+        return 'unsupported'
+      }
       if (!(await uploadStagedFile(id, file))) return 'failed'
       options.onUploaded?.()
       return 'uploaded'
@@ -335,14 +342,18 @@ export function useAttachment(options: UseAttachmentOptions) {
 
   async function addFiles(files: Iterable<File>): Promise<boolean> {
     const duplicates: string[] = []
-    const staged = [...files]
-      .filter((file) => !isTooLarge(file))
-      .flatMap((file) => {
-        const sourceKey = `file:${JSON.stringify([file.name, file.size, file.lastModified, file.type])}`
-        const id = stage(file.name, sourceKey)
-        if (!id) duplicates.push(file.name)
-        return id ? [{ file, id }] : []
-      })
+    const staged: Array<{ file: File; id: string }> = []
+    for (const file of files) {
+      if (isTooLarge(file)) continue
+      if (options.validate && !(await options.validate(file))) {
+        options.onInvalid?.(file)
+        continue
+      }
+      const sourceKey = `file:${JSON.stringify([file.name, file.size, file.lastModified, file.type])}`
+      const id = stage(file.name, sourceKey)
+      if (!id) duplicates.push(file.name)
+      else staged.push({ file, id })
+    }
     if (duplicates.length) options.onDuplicate?.(duplicates)
     let uploaded = 0
     await Promise.all(
