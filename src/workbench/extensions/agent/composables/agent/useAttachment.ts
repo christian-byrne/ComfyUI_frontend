@@ -33,6 +33,7 @@ interface UploadResult {
 type DeferredFileResult =
   | 'uploaded'
   | 'unsupported'
+  | 'invalid'
   | 'cancelled'
   | 'failed'
   | 'duplicate'
@@ -313,7 +314,7 @@ export function useAttachment(options: UseAttachmentOptions) {
       if (options.validate && !(await options.validate(file))) {
         options.remove(id)
         options.onInvalid?.(file)
-        return 'unsupported'
+        return 'invalid'
       }
       if (!(await uploadStagedFile(id, file))) return 'failed'
       options.onUploaded?.()
