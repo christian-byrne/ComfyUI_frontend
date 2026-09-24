@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test'
 
 import type { RemoteConfig } from '@/platform/remoteConfig/types'
+import type { ComfyNodeDef } from '@/schemas/nodeDefSchema'
 
 import { mockSystemStats } from '@e2e/fixtures/data/systemStats'
 import { CloudAuthHelper } from '@e2e/fixtures/helpers/CloudAuthHelper'
@@ -12,6 +13,8 @@ interface CloudBootOptions {
   features: RemoteConfig
   /** Body for `/api/settings` (defaults to `{}`). */
   settings?: unknown
+  /** Node definitions returned by `/api/object_info` (defaults to none). */
+  nodeDefinitions?: Record<string, ComfyNodeDef>
 }
 
 /**
@@ -21,7 +24,7 @@ interface CloudBootOptions {
  */
 export async function mockCloudBoot(
   page: Page,
-  { features, settings = {} }: CloudBootOptions
+  { features, settings = {}, nodeDefinitions = {} }: CloudBootOptions
 ) {
   await page.route('**/api/features', (r) => r.fulfill(jsonRoute(features)))
   await page.route('**/api/system_stats', (r) =>
@@ -42,7 +45,9 @@ export async function mockCloudBoot(
   await page.route('**/api/settings', (r) => r.fulfill(jsonRoute(settings)))
   await page.route('**/api/userdata**', (r) => r.fulfill(jsonRoute([])))
   await page.route('**/api/extensions', (r) => r.fulfill(jsonRoute([])))
-  await page.route('**/api/object_info', (r) => r.fulfill(jsonRoute({})))
+  await page.route('**/api/object_info', (r) =>
+    r.fulfill(jsonRoute(nodeDefinitions))
+  )
   await page.route('**/api/global_subgraphs', (r) => r.fulfill(jsonRoute({})))
   await page.route('**/api/i18n', (r) => r.fulfill(jsonRoute({})))
   await page.route('**/api/auth/session', (r) =>

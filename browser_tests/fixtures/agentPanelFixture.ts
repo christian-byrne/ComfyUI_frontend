@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 import type { ListAssetsResponse } from '@comfyorg/ingest-types'
 
 import type { RemoteConfig } from '@/platform/remoteConfig/types'
+import type { ComfyNodeDef } from '@/schemas/nodeDefSchema'
 
 import { cloudAppFixture, waitForCloudApp } from '@e2e/fixtures/cloudAppFixture'
 import { mockBilling } from '@e2e/fixtures/utils/cloudBillingMocks'
@@ -26,14 +27,22 @@ function agentFeatures(agentFlag: boolean): RemoteConfig {
 interface BootAgentAppOptions {
   /** Extra `/api/settings` entries layered over the panel defaults. */
   settings?: Record<string, unknown>
+  nodeDefinitions?: Record<string, ComfyNodeDef>
+  assets?: ListAssetsResponse
 }
 
 async function mockAgentBoot(
   page: Page,
-  { agentFlag, settings }: { agentFlag: boolean } & BootAgentAppOptions
+  {
+    agentFlag,
+    settings,
+    nodeDefinitions,
+    assets
+  }: { agentFlag: boolean } & BootAgentAppOptions
 ): Promise<void> {
   await mockCloudBoot(page, {
     features: agentFeatures(agentFlag),
+    nodeDefinitions,
     settings: {
       'Comfy.TutorialCompleted': true,
       'Comfy.RightSidePanel.ShowErrorsTab': false,
@@ -41,12 +50,14 @@ async function mockAgentBoot(
     }
   })
   await mockBilling(page)
-  const emptyAssets: ListAssetsResponse = {
+  const assetsResponse: ListAssetsResponse = assets ?? {
     assets: [],
     total: 0,
     has_more: false
   }
-  await page.route('**/api/assets**', (r) => r.fulfill(jsonRoute(emptyAssets)))
+  await page.route('**/api/assets**', (r) =>
+    r.fulfill(jsonRoute(assetsResponse))
+  )
   // The bootstrapped project token makes PostHogTelemetryProvider run a real
   // posthog.init(); route its ingest host so CI never emits live third-party
   // traffic under the fabricated token.

@@ -21,6 +21,8 @@ import type {
   AgentConversation,
   RecordedWsEvent
 } from '@e2e/fixtures/data/agent/agentConversation'
+import { imageLayoutNodeDefinitions } from '@e2e/fixtures/data/agent/imageLayoutNodeDefinitions'
+import { assetPath } from '@e2e/fixtures/utils/paths'
 import { jsonRoute } from '@e2e/fixtures/utils/jsonRoute'
 
 const THREAD_ID = 'e9a2f3d1-7c44-4b2e-9a01-5f6d8c7b3a10'
@@ -182,6 +184,9 @@ export class AgentConversationHarness {
 
   async boot(agentFlag: boolean): Promise<void> {
     await this.mockAgentApi()
+    await this.page.route('**/api/view?**', (route) =>
+      route.fulfill({ path: assetPath('image32x32.webp') })
+    )
     // The app may reopen `/ws` (the connect awaits an auth token), and the
     // follower only re-drives a pending subscribe on a `status` frame, which
     // the real server sends on every connect. So every routed socket becomes
@@ -202,7 +207,31 @@ export class AgentConversationHarness {
     await bootAgentApp(this.page, agentFlag, {
       // Follower edits land in the ECS stores, which only the Vue node
       // renderer projects onto the canvas.
-      settings: { 'Comfy.VueNodes.Enabled': true }
+      settings: { 'Comfy.VueNodes.Enabled': true },
+      nodeDefinitions:
+        this.conversation.source.case_id ===
+        'test_populated_image_loaders_reserve_the_frontend_preview_height'
+          ? imageLayoutNodeDefinitions
+          : undefined,
+      assets:
+        this.conversation.source.case_id ===
+        'test_populated_image_loaders_reserve_the_frontend_preview_height'
+          ? {
+              assets: [
+                {
+                  id: 'fixture-image',
+                  name: 'fixture.png',
+                  hash: 'fixture.png',
+                  mime_type: 'image/png',
+                  tags: ['input'],
+                  created_at: '2026-09-22T00:00:00Z',
+                  updated_at: '2026-09-22T00:00:00Z'
+                }
+              ],
+              total: 1,
+              has_more: false
+            }
+          : undefined
     })
 
     await this.page.getByRole('button', { name: OPEN_AGENT_LABEL }).click()
@@ -269,6 +298,66 @@ export class AgentConversationHarness {
         })
       )
     return snapshot.sort(byNodeId)
+  }
+
+  async waitForImagePreviews(count: number): Promise<void> {
+    await expect(this.page.locator('.image-preview img')).toHaveCount(count)
+  }
+
+  async fitGraphToView(): Promise<void> {
+    await this.page.getByRole('button', { name: 'Fit View (.)' }).click()
+    await expect
+      .poll(() =>
+        this.page.locator('[data-node-id]').evaluateAll(async (nodes) => {
+          const read = () =>
+            nodes.map((node) => {
+              const { x, y, width, height } = node.getBoundingClientRect()
+              return { x, y, width, height }
+            })
+          const before = read()
+          await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+          )
+          return JSON.stringify(read()) === JSON.stringify(before)
+        })
+      )
+      .toBe(true)
+  }
+
+  async expectNodesNotToOverlap(title: string, count: number): Promise<void> {
+    const nodes = this.page.locator('[data-node-id]').filter({
+      has: this.page.getByTestId('node-title').filter({ hasText: title })
+    })
+    await expect(nodes).toHaveCount(count)
+    await expect(async () => {
+      const boxes = await nodes.evaluateAll((elements) =>
+        elements.map((element) => {
+          const { left, top, right, bottom } = element.getBoundingClientRect()
+          return { left, top, right, bottom }
+        })
+      )
+      for (let left = 0; left < boxes.length; left += 1) {
+        for (let right = left + 1; right < boxes.length; right += 1) {
+          const a = boxes[left]
+          const b = boxes[right]
+          expect(
+            a.right <= b.left ||
+              b.right <= a.left ||
+              a.bottom <= b.top ||
+              b.bottom <= a.top,
+            `${title} nodes ${left + 1} and ${right + 1} overlap`
+          ).toBe(true)
+        }
+      }
+    }).toPass({ timeout: 5_000 })
+  }
+
+  async expectCanvasScreenshot(name: string): Promise<void> {
+    const errorOverlay = this.page.getByTestId('error-overlay')
+    if (await errorOverlay.isVisible()) {
+      await errorOverlay.getByRole('button', { name: 'Close' }).click()
+    }
+    await expect(this.page.locator('#graph-canvas')).toHaveScreenshot(name)
   }
 
   private async mockAgentApi(): Promise<void> {

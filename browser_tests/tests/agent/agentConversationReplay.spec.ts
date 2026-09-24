@@ -3,6 +3,29 @@ import { expect } from '@playwright/test'
 import { agentConversationTest as test } from '@e2e/fixtures/agentConversationFixture'
 
 test.describe('Agent conversation replay', { tag: '@cloud' }, () => {
+  test.describe('comfy-cli populated LoadImage layout regression', () => {
+    test.use({ conversationCase: 'agent-load-image-layout' })
+
+    test(
+      'keeps five populated LoadImage nodes visually separated',
+      { tag: ['@screenshot', '@canvas', '@node'] },
+      async ({ agentConversation }) => {
+        test.setTimeout(45_000)
+
+        await agentConversation.sendPrompt()
+        await agentConversation.replayResponse()
+        await agentConversation.waitForTurnComplete()
+        await agentConversation.waitForImagePreviews(5)
+        await agentConversation.fitGraphToView()
+
+        await agentConversation.expectNodesNotToOverlap('Load Image', 5)
+        await agentConversation.expectCanvasScreenshot(
+          'agent-load-image-layout.png'
+        )
+      }
+    )
+  })
+
   test.describe('evals agent-l4-zimage-string-node-prompt', () => {
     test.use({ conversationCase: 'agent-l4-zimage-string-node-prompt' })
 
