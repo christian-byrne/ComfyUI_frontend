@@ -1,0 +1,1434 @@
+diff --git a/browser_tests/tests/dialogs/pricingTableDeepLink.spec.ts b/browser_tests/tests/dialogs/pricingTableDeepLink.spec.ts
+index 56f3bed8a..c23cdde65 100644
+--- a/browser_tests/tests/dialogs/pricingTableDeepLink.spec.ts
++++ b/browser_tests/tests/dialogs/pricingTableDeepLink.spec.ts
+@@ -28,7 +28,12 @@ const APP_URL = process.env.PLAYWRIGHT_TEST_URL || 'http://localhost:8188'
+ // matches it against the members self-row.
+ const SELF_EMAIL = 'e2e@test.comfy.org'
+ 
+-const BOOT_FEATURES = { team_workspaces_enabled: true } satisfies RemoteConfig
++// consolidated_billing_enabled routes personal workspaces to the unified
++// pricing table asserted here; without it they fall back to the legacy table.
++const BOOT_FEATURES = {
++  team_workspaces_enabled: true,
++  consolidated_billing_enabled: true
++} satisfies RemoteConfig
+ // Disable the experimental Asset API: with it on (cloud default) the unmocked
+ // asset endpoints 403 and workflow restore throws uncaught, aborting the
+ // GraphCanvas onMounted chain before the deep-link loader.
+diff --git a/src/components/dialog/content/TopUpCreditsDialogContentLegacy.vue b/src/components/dialog/content/TopUpCreditsDialogContentLegacy.vue
+index 79abba76d..2d8c4b7b4 100644
+--- a/src/components/dialog/content/TopUpCreditsDialogContentLegacy.vue
++++ b/src/components/dialog/content/TopUpCreditsDialogContentLegacy.vue
+@@ -158,8 +158,8 @@ import { creditsToUsd, usdToCredits } from '@/base/credits/comfyCredits'
+ import Button from '@/components/ui/button/Button.vue'
+ import FormattedNumberStepper from '@/components/ui/stepper/FormattedNumberStepper.vue'
+ import { useAuthActions } from '@/composables/auth/useAuthActions'
++import { useBillingRouting } from '@/composables/billing/useBillingRouting'
+ import { useExternalLink } from '@/composables/useExternalLink'
+-import { useFeatureFlags } from '@/composables/useFeatureFlags'
+ import { useSubscription } from '@/platform/cloud/subscription/composables/useSubscription'
+ import { useTelemetry } from '@/platform/telemetry'
+ import { clearTopupTracking } from '@/platform/telemetry/topupTracker'
+@@ -178,7 +178,7 @@ const settingsDialog = useSettingsDialog()
+ const telemetry = useTelemetry()
+ const toast = useToast()
+ const { buildDocsUrl, docsPaths } = useExternalLink()
+-const { flags } = useFeatureFlags()
++const { shouldUseWorkspaceBilling } = useBillingRouting()
+ 
+ const { isSubscriptionEnabled } = useSubscription()
+ // Constants
+@@ -260,9 +260,9 @@ async function handleBuy() {
+     // Close top-up dialog (keep tracking) and open credits panel to show updated balance
+     handleClose(false)
+ 
+-    // In workspace mode (personal workspace), show workspace settings panel
+-    // Otherwise, show legacy subscription/credits panel
+-    const settingsPanel = flags.teamWorkspacesEnabled
++    // On the consolidated (workspace) billing flow, show the workspace settings
++    // panel; otherwise show the legacy subscription/credits panel.
++    const settingsPanel = shouldUseWorkspaceBilling.value
+       ? 'workspace'
+       : isSubscriptionEnabled()
+         ? 'subscription'
+diff --git a/src/components/dialog/content/setting/UsageLogsTable.test.ts b/src/components/dialog/content/setting/UsageLogsTable.test.ts
+index cddcaa5c9..b2d4d32b1 100644
+--- a/src/components/dialog/content/setting/UsageLogsTable.test.ts
++++ b/src/components/dialog/content/setting/UsageLogsTable.test.ts
+@@ -7,7 +7,6 @@ import { createI18n } from 'vue-i18n'
+ 
+ import { render, screen, waitFor } from '@testing-library/vue'
+ 
+-import type * as DistributionTypes from '@/platform/distribution/types'
+ import type { AuditLog } from '@/services/customerEventsService'
+ import { EventType } from '@/services/customerEventsService'
+ 
+@@ -35,19 +34,29 @@ vi.mock('@/services/customerEventsService', () => ({
+   }
+ }))
+ 
+-vi.mock('@/platform/telemetry', () => ({
+-  useTelemetry: () => null
++const mockTelemetry = vi.hoisted(() => ({
++  checkForCompletedTopup: vi.fn()
+ }))
+-
+-const mockFlags = vi.hoisted(() => ({ teamWorkspacesEnabled: false }))
+-vi.mock('@/composables/useFeatureFlags', () => ({
+-  useFeatureFlags: () => ({ flags: mockFlags })
++vi.mock('@/platform/telemetry', () => ({
++  useTelemetry: () => mockTelemetry
+ }))
+ 
+-vi.mock('@/platform/distribution/types', async (importOriginal) => ({
+-  ...(await importOriginal<typeof DistributionTypes>()),
+-  isCloud: true
++const mockBillingRouting = vi.hoisted(() => ({
++  shouldUseWorkspaceBilling: false
+ }))
++vi.mock('@/composables/billing/useBillingRouting', async () => {
++  const { ref } = await import('vue')
++  const shouldUseWorkspaceBilling = ref(false)
++  Object.defineProperty(mockBillingRouting, 'shouldUseWorkspaceBilling', {
++    get: () => shouldUseWorkspaceBilling.value,
++    set: (value: boolean) => {
++      shouldUseWorkspaceBilling.value = value
++    }
++  })
++  return {
++    useBillingRouting: () => ({ shouldUseWorkspaceBilling })
++  }
++})
+ 
+ const mockWorkspaceApi = vi.hoisted(() => ({
+   getBillingEvents: vi.fn()
+@@ -68,7 +77,10 @@ const i18n = createI18n({
+         additionalInfo: 'Additional Info',
+         added: 'Added',
+         accountInitialized: 'Account initialized',
+-        model: 'Model'
++        model: 'Model',
++        loadEventsError: 'Failed to load activity. Please try again.',
++        loadEventsUnknownError:
++          'Something went wrong while loading activity. Please refresh and try again.'
+       }
+     }
+   }
+@@ -137,7 +149,7 @@ describe('UsageLogsTable', () => {
+ 
+     mockCustomerEventsService.getMyEvents.mockResolvedValue(mockEventsResponse)
+     mockWorkspaceApi.getBillingEvents.mockResolvedValue(mockEventsResponse)
+-    mockFlags.teamWorkspacesEnabled = false
++    mockBillingRouting.shouldUseWorkspaceBilling = false
+     mockCustomerEventsService.formatEventType.mockImplementation(
+       (type: string) => {
+         switch (type) {
+@@ -240,6 +252,33 @@ describe('UsageLogsTable', () => {
+       })
+     })
+ 
++    it('shows a localized fallback when the service reports no message', async () => {
++      mockCustomerEventsService.getMyEvents.mockResolvedValue(null)
++      mockCustomerEventsService.error.value = null
++
++      renderWithAutoRefresh()
++
++      await waitFor(() => {
++        expect(
++          screen.getByText('Failed to load activity. Please try again.')
++        ).toBeInTheDocument()
++      })
++    })
++
++    it('shows a localized fallback for a non-Error throw', async () => {
++      mockCustomerEventsService.getMyEvents.mockRejectedValue('boom')
++
++      renderWithAutoRefresh()
++
++      await waitFor(() => {
++        expect(
++          screen.getByText(
++            'Something went wrong while loading activity. Please refresh and try again.'
++          )
++        ).toBeInTheDocument()
++      })
++    })
++
+     it('shows data table after loading completes', async () => {
+       await renderLoaded()
+ 
+@@ -341,8 +380,8 @@ describe('UsageLogsTable', () => {
+   })
+ 
+   describe('billing events source', () => {
+-    it('uses workspaceApi.getBillingEvents when teamWorkspacesEnabled is on', async () => {
+-      mockFlags.teamWorkspacesEnabled = true
++    it('uses workspaceApi.getBillingEvents on the workspace billing flow', async () => {
++      mockBillingRouting.shouldUseWorkspaceBilling = true
+ 
+       await renderLoaded()
+ 
+@@ -352,6 +391,90 @@ describe('UsageLogsTable', () => {
+       })
+       expect(mockCustomerEventsService.getMyEvents).not.toHaveBeenCalled()
+     })
++
++    it('discards a stale legacy response when routing flips mid-fetch', async () => {
++      let resolveLegacy!: (value: ReturnType<typeof makeEventsResponse>) => void
++      mockCustomerEventsService.getMyEvents.mockReturnValue(
++        new Promise((resolve) => {
++          resolveLegacy = resolve
++        })
++      )
++      mockWorkspaceApi.getBillingEvents.mockResolvedValue(
++        makeEventsResponse([
++          {
++            event_id: 'workspace-1',
++            event_type: EventType.API_USAGE_COMPLETED,
++            params: { api_name: 'WorkspaceAPI', model: 'workspace-model' },
++            createdAt: '2024-02-01T10:00:00Z'
++          }
++        ])
++      )
++
++      renderWithAutoRefresh()
++
++      mockBillingRouting.shouldUseWorkspaceBilling = true
++      await waitFor(() => {
++        expect(screen.getByText('WorkspaceAPI')).toBeInTheDocument()
++      })
++
++      resolveLegacy(
++        makeEventsResponse([
++          {
++            event_id: 'legacy-1',
++            event_type: EventType.API_USAGE_COMPLETED,
++            params: { api_name: 'LegacyAPI', model: 'legacy-model' },
++            createdAt: '2024-01-01T10:00:00Z'
++          }
++        ])
++      )
++
++      await waitFor(() => {
++        expect(screen.getByText('WorkspaceAPI')).toBeInTheDocument()
++      })
++      expect(screen.queryByText('LegacyAPI')).not.toBeInTheDocument()
++    })
++
++    it('runs top-up completion telemetry for a superseded response', async () => {
++      let resolveLegacy!: (value: ReturnType<typeof makeEventsResponse>) => void
++      mockCustomerEventsService.getMyEvents.mockReturnValue(
++        new Promise((resolve) => {
++          resolveLegacy = resolve
++        })
++      )
++      mockWorkspaceApi.getBillingEvents.mockResolvedValue(
++        makeEventsResponse([
++          {
++            event_id: 'workspace-1',
++            event_type: EventType.API_USAGE_COMPLETED,
++            params: { api_name: 'WorkspaceAPI', model: 'workspace-model' },
++            createdAt: '2024-02-01T10:00:00Z'
++          }
++        ])
++      )
++
++      renderWithAutoRefresh()
++
++      mockBillingRouting.shouldUseWorkspaceBilling = true
++      await waitFor(() => {
++        expect(screen.getByText('WorkspaceAPI')).toBeInTheDocument()
++      })
++
++      const legacyResponse = makeEventsResponse([
++        {
++          event_id: 'legacy-1',
++          event_type: EventType.CREDIT_ADDED,
++          params: { amount: 1000 },
++          createdAt: '2024-01-01T10:00:00Z'
++        }
++      ])
++      resolveLegacy(legacyResponse)
++
++      await waitFor(() => {
++        expect(mockTelemetry.checkForCompletedTopup).toHaveBeenCalledWith(
++          legacyResponse.events
++        )
++      })
++    })
+   })
+ 
+   describe('EventType integration', () => {
+diff --git a/src/components/dialog/content/setting/UsageLogsTable.vue b/src/components/dialog/content/setting/UsageLogsTable.vue
+index 896397fca..6db23030d 100644
+--- a/src/components/dialog/content/setting/UsageLogsTable.vue
++++ b/src/components/dialog/content/setting/UsageLogsTable.vue
+@@ -96,11 +96,11 @@ import Column from 'primevue/column'
+ import DataTable from 'primevue/datatable'
+ import Message from 'primevue/message'
+ import ProgressSpinner from 'primevue/progressspinner'
+-import { computed, ref } from 'vue'
++import { computed, onScopeDispose, ref, watch } from 'vue'
++import { useI18n } from 'vue-i18n'
+ 
+ import Button from '@/components/ui/button/Button.vue'
+-import { useFeatureFlags } from '@/composables/useFeatureFlags'
+-import { isCloud } from '@/platform/distribution/types'
++import { useBillingRouting } from '@/composables/billing/useBillingRouting'
+ import { useTelemetry } from '@/platform/telemetry'
+ import { workspaceApi } from '@/platform/workspace/api/workspaceApi'
+ import type { AuditLog } from '@/services/customerEventsService'
+@@ -109,14 +109,15 @@ import {
+   useCustomerEventsService
+ } from '@/services/customerEventsService'
+ 
++const { t } = useI18n()
++
+ const events = ref<AuditLog[]>([])
+ const loading = ref(true)
+ const error = ref<string | null>(null)
+ 
+ const customerEventService = useCustomerEventsService()
+ 
+-const { flags } = useFeatureFlags()
+-const useBillingApi = computed(() => isCloud && flags.teamWorkspacesEnabled)
++const { shouldUseWorkspaceBilling } = useBillingRouting()
+ 
+ const pagination = ref({
+   page: 1,
+@@ -139,7 +140,15 @@ const tooltipContentMap = computed(() => {
+   return map
+ })
+ 
++// A billing-route flip can overlap two loads against different backends; only
++// the latest may mutate state, so a superseded response is discarded.
++let latestLoadToken = 0
++onScopeDispose(() => {
++  latestLoadToken += 1
++})
++
+ const loadEvents = async () => {
++  const loadToken = ++latestLoadToken
+   loading.value = true
+   error.value = null
+ 
+@@ -148,10 +157,17 @@ const loadEvents = async () => {
+       page: pagination.value.page,
+       limit: pagination.value.limit
+     }
+-    const response = useBillingApi.value
++    const response = shouldUseWorkspaceBilling.value
+       ? await workspaceApi.getBillingEvents(params)
+       : await customerEventService.getMyEvents(params)
+ 
++    // Completion telemetry must run even when a mid-checkout route flip
++    // supersedes this load, since legacy and workspace backends emit different
++    // top-up events and the winning fetch may not carry the completion yet.
++    useTelemetry()?.checkForCompletedTopup(response?.events)
++
++    if (loadToken !== latestLoadToken) return
++
+     if (response) {
+       if (response.events) {
+         events.value = response.events
+@@ -165,24 +181,24 @@ const loadEvents = async () => {
+         pagination.value.limit = response.limit
+       }
+ 
+-      if (response.total) {
++      if (response.total != null) {
+         pagination.value.total = response.total
+       }
+ 
+-      if (response.totalPages) {
++      if (response.totalPages != null) {
+         pagination.value.totalPages = response.totalPages
+       }
+-
+-      // Check if a pending top-up has completed
+-      useTelemetry()?.checkForCompletedTopup(response.events)
+     } else {
+-      error.value = customerEventService.error.value || 'Failed to load events'
++      error.value =
++        customerEventService.error.value || t('credits.loadEventsError')
+     }
+   } catch (err) {
+-    error.value = err instanceof Error ? err.message : 'Unknown error'
++    if (loadToken !== latestLoadToken) return
++    error.value =
++      err instanceof Error ? err.message : t('credits.loadEventsUnknownError')
+     console.error('Error loading events:', err)
+   } finally {
+-    loading.value = false
++    if (loadToken === latestLoadToken) loading.value = false
+   }
+ }
+ 
+@@ -198,6 +214,12 @@ const refresh = async () => {
+   await loadEvents()
+ }
+ 
++watch(shouldUseWorkspaceBilling, () => {
++  refresh().catch((error) => {
++    console.error('Error loading events:', error)
++  })
++})
++
+ defineExpose({
+   refresh
+ })
+diff --git a/src/composables/billing/useBillingContext.test.ts b/src/composables/billing/useBillingContext.test.ts
+index 46bea03ff..32b1bea65 100644
+--- a/src/composables/billing/useBillingContext.test.ts
++++ b/src/composables/billing/useBillingContext.test.ts
+@@ -19,6 +19,7 @@ const DEFAULT_BILLING_STATUS: BillingStatusResponse = {
+ 
+ const {
+   mockTeamWorkspacesEnabled,
++  mockConsolidatedBillingEnabled,
+   mockIsPersonal,
+   mockPlans,
+   mockPurchaseCredits,
+@@ -26,6 +27,7 @@ const {
+   mockBillingStatus
+ } = vi.hoisted(() => ({
+   mockTeamWorkspacesEnabled: { value: false },
++  mockConsolidatedBillingEnabled: { value: false },
+   mockIsPersonal: { value: true },
+   mockPlans: { value: [] as Plan[] },
+   mockPurchaseCredits: vi.fn(),
+@@ -57,11 +59,23 @@ vi.mock('@/composables/useFeatureFlags', async () => {
+       teamWorkspacesEnabledRef.value = value
+     }
+   })
++  const consolidatedBillingEnabledRef = ref(
++    mockConsolidatedBillingEnabled.value
++  )
++  Object.defineProperty(mockConsolidatedBillingEnabled, 'value', {
++    get: () => consolidatedBillingEnabledRef.value,
++    set: (value: boolean) => {
++      consolidatedBillingEnabledRef.value = value
++    }
++  })
+   return {
+     useFeatureFlags: () => ({
+       flags: {
+         get teamWorkspacesEnabled() {
+           return mockTeamWorkspacesEnabled.value
++        },
++        get consolidatedBillingEnabled() {
++          return mockConsolidatedBillingEnabled.value
+         }
+       }
+     })
+@@ -151,6 +165,7 @@ describe('useBillingContext', () => {
+     setActivePinia(createPinia())
+     vi.clearAllMocks()
+     mockTeamWorkspacesEnabled.value = false
++    mockConsolidatedBillingEnabled.value = false
+     mockIsPersonal.value = true
+     mockPlans.value = []
+     mockBillingStatus.value = { ...DEFAULT_BILLING_STATUS }
+@@ -162,16 +177,27 @@ describe('useBillingContext', () => {
+     expect(type.value).toBe('legacy')
+   })
+ 
+-  it('selects workspace type for personal when team workspaces are enabled', () => {
++  it('keeps personal on legacy when consolidated billing is disabled', () => {
+     mockTeamWorkspacesEnabled.value = true
++    mockConsolidatedBillingEnabled.value = false
++    mockIsPersonal.value = true
++
++    const { type } = useBillingContext()
++    expect(type.value).toBe('legacy')
++  })
++
++  it('selects workspace type for personal when consolidated billing is enabled', () => {
++    mockTeamWorkspacesEnabled.value = true
++    mockConsolidatedBillingEnabled.value = true
+     mockIsPersonal.value = true
+ 
+     const { type } = useBillingContext()
+     expect(type.value).toBe('workspace')
+   })
+ 
+-  it('selects workspace type for team when team workspaces are enabled', () => {
++  it('selects workspace type for team regardless of consolidated billing', () => {
+     mockTeamWorkspacesEnabled.value = true
++    mockConsolidatedBillingEnabled.value = false
+     mockIsPersonal.value = false
+ 
+     const { type } = useBillingContext()
+@@ -272,6 +298,7 @@ describe('useBillingContext', () => {
+     expect(workspaceApi.getBillingStatus).not.toHaveBeenCalled()
+ 
+     // Authenticated remote config resolves the flag on for the same workspace
++    mockConsolidatedBillingEnabled.value = true
+     mockTeamWorkspacesEnabled.value = true
+ 
+     await vi.waitFor(() => {
+@@ -280,9 +307,27 @@ describe('useBillingContext', () => {
+     })
+   })
+ 
++  it('moves a personal workspace to workspace billing when consolidated billing flips on', async () => {
++    mockTeamWorkspacesEnabled.value = true
++    mockConsolidatedBillingEnabled.value = false
++    mockIsPersonal.value = true
++
++    const { type } = useBillingContext()
++    await nextTick()
++    expect(type.value).toBe('legacy')
++
++    mockConsolidatedBillingEnabled.value = true
++
++    await vi.waitFor(() => {
++      expect(type.value).toBe('workspace')
++      expect(workspaceApi.getBillingStatus).toHaveBeenCalled()
++    })
++  })
++
+   describe('subscription mirror to workspace store', () => {
+-    it('mirrors subscription for personal workspaces when team workspaces are enabled', async () => {
++    it('mirrors subscription for personal workspaces on the consolidated billing flow', async () => {
+       mockTeamWorkspacesEnabled.value = true
++      mockConsolidatedBillingEnabled.value = true
+       mockIsPersonal.value = true
+ 
+       const { initialize } = useBillingContext()
+@@ -294,6 +339,18 @@ describe('useBillingContext', () => {
+         subscriptionPlan: null
+       })
+     })
++
++    it('clears the mirror while a fresh context has no subscription yet', () => {
++      mockTeamWorkspacesEnabled.value = true
++      mockIsPersonal.value = false
++
++      useBillingContext()
++
++      expect(mockUpdateActiveWorkspace).toHaveBeenCalledWith({
++        isSubscribed: false,
++        subscriptionPlan: null
++      })
++    })
+   })
+ 
+   describe('getMaxSeats', () => {
+diff --git a/src/composables/billing/useBillingContext.ts b/src/composables/billing/useBillingContext.ts
+index 209616902..baf5333f4 100644
+--- a/src/composables/billing/useBillingContext.ts
++++ b/src/composables/billing/useBillingContext.ts
+@@ -1,7 +1,6 @@
+ import { computed, ref, shallowRef, toValue, watch } from 'vue'
+ import { createSharedComposable } from '@vueuse/core'
+ 
+-import { useFeatureFlags } from '@/composables/useFeatureFlags'
+ import {
+   KEY_TO_TIER,
+   getTierFeatures
+@@ -17,10 +16,10 @@ import type {
+   BalanceInfo,
+   BillingActions,
+   BillingContext,
+-  BillingType,
+   BillingState,
+   SubscriptionInfo
+ } from './types'
++import { useBillingRouting } from './useBillingRouting'
+ import { useLegacyBilling } from './useLegacyBilling'
+ import { useWorkspaceBilling } from '@/platform/workspace/composables/useWorkspaceBilling'
+ 
+@@ -34,8 +33,9 @@ const LEGACY_TEAM_PLAN_SLUG_PREFIX = 'team-'
+  * Unified billing context that selects the billing implementation by build/flag.
+  *
+  * - Team workspaces disabled (OSS/Desktop): legacy billing via /customers/*
+- * - Team workspaces enabled: workspace billing via /api/billing/* for both
+- *   personal (single-seat workspace) and team workspaces
++ * - Team workspaces enabled: workspace billing via /api/billing/* for team
++ *   workspaces, and for personal workspaces once consolidated billing is
++ *   enabled; personal workspaces otherwise stay on legacy billing
+  *
+  * The context automatically initializes when the workspace changes and provides
+  * a unified interface for subscription status, balance, and billing actions.
+@@ -68,7 +68,7 @@ const LEGACY_TEAM_PLAN_SLUG_PREFIX = 'team-'
+  */
+ function useBillingContextInternal(): BillingContext {
+   const store = useTeamWorkspaceStore()
+-  const { flags } = useFeatureFlags()
++  const { type } = useBillingRouting()
+ 
+   const legacyBillingRef = shallowRef<(BillingState & BillingActions) | null>(
+     null
+@@ -95,16 +95,6 @@ function useBillingContextInternal(): BillingContext {
+   const isLoading = ref(false)
+   const error = ref<string | null>(null)
+ 
+-  /**
+-   * Determines which billing type to use, keyed only on the build/flag:
+-   * - Team workspaces feature disabled (OSS/Desktop): legacy (/customers)
+-   * - Team workspaces feature enabled: workspace (/api/billing), for both
+-   *   personal (single-seat workspace) and team workspaces
+-   */
+-  const type = computed<BillingType>(() =>
+-    flags.teamWorkspacesEnabled ? 'workspace' : 'legacy'
+-  )
+-
+   const activeContext = computed(() =>
+     type.value === 'legacy' ? getLegacyBilling() : getWorkspaceBilling()
+   )
+@@ -175,34 +165,35 @@ function useBillingContextInternal(): BillingContext {
+   watch(
+     subscription,
+     (sub) => {
+-      if (!sub) return
+-
+       store.updateActiveWorkspace({
+-        isSubscribed: sub.isActive && !sub.isCancelled,
+-        subscriptionPlan: sub.planSlug
++        isSubscribed: sub ? sub.isActive && !sub.isCancelled : false,
++        subscriptionPlan: sub?.planSlug ?? null
+       })
+     },
+     { immediate: true }
+   )
+ 
++  // Discarding the adapter instances forces a fresh fetch and lets an in-flight
++  // init detect that it was superseded (its captured adapter is no longer the
++  // active one), so a stale response can't resolve into a ready state for the
++  // wrong workspace.
+   function resetBillingState() {
++    legacyBillingRef.value = null
++    workspaceBillingRef.value = null
+     isInitialized.value = false
++    isLoading.value = false
+     error.value = null
+   }
+ 
+-  // type can flip after setup when the team-workspaces flag resolves from
+-  // authenticated config, swapping the active backend; a fresh init is needed.
+-  // The watch fires only when id or type actually changes, so any fire with a
+-  // workspace selected warrants a reinit.
++  // type flips when the team-workspaces or consolidated-billing flag resolves
++  // from authenticated config, swapping the active backend. Reset then reinit
++  // on every workspace-id or type change.
+   watch(
+     [() => store.activeWorkspace?.id, () => type.value],
+     async ([newWorkspaceId]) => {
+-      if (!newWorkspaceId) {
+-        resetBillingState()
+-        return
+-      }
++      resetBillingState()
++      if (!newWorkspaceId) return
+ 
+-      isInitialized.value = false
+       try {
+         await initialize()
+       } catch (err) {
+@@ -215,17 +206,20 @@ function useBillingContextInternal(): BillingContext {
+   async function initialize(): Promise<void> {
+     if (isInitialized.value) return
+ 
++    const adapter = activeContext.value
+     isLoading.value = true
+     error.value = null
+     try {
+-      await activeContext.value.initialize()
++      await adapter.initialize()
++      if (activeContext.value !== adapter) return
+       isInitialized.value = true
+     } catch (err) {
++      if (activeContext.value !== adapter) return
+       error.value =
+         err instanceof Error ? err.message : 'Failed to initialize billing'
+       throw err
+     } finally {
+-      isLoading.value = false
++      if (activeContext.value === adapter) isLoading.value = false
+     }
+   }
+ 
+diff --git a/src/composables/billing/useBillingRouting.test.ts b/src/composables/billing/useBillingRouting.test.ts
+new file mode 100644
+index 000000000..3cbbec85c
+--- /dev/null
++++ b/src/composables/billing/useBillingRouting.test.ts
+@@ -0,0 +1,86 @@
++import { beforeEach, describe, expect, it, vi } from 'vitest'
++
++import { useBillingRouting } from './useBillingRouting'
++
++const { mockFlags, mockActiveWorkspace } = vi.hoisted(() => ({
++  mockFlags: {
++    teamWorkspacesEnabled: false,
++    consolidatedBillingEnabled: false
++  },
++  mockActiveWorkspace: {
++    value: null as { id: string; type: 'personal' | 'team' } | null
++  }
++}))
++
++vi.mock('@/composables/useFeatureFlags', () => ({
++  useFeatureFlags: () => ({ flags: mockFlags })
++}))
++
++vi.mock('@/platform/workspace/stores/teamWorkspaceStore', () => ({
++  useTeamWorkspaceStore: () => ({
++    get activeWorkspace() {
++      return mockActiveWorkspace.value
++    }
++  })
++}))
++
++const personal = { id: 'w-personal', type: 'personal' as const }
++const team = { id: 'w-team', type: 'team' as const }
++
++describe('useBillingRouting', () => {
++  beforeEach(() => {
++    mockFlags.teamWorkspacesEnabled = false
++    mockFlags.consolidatedBillingEnabled = false
++    mockActiveWorkspace.value = personal
++  })
++
++  it('uses legacy billing when team workspaces are disabled', () => {
++    mockFlags.teamWorkspacesEnabled = false
++    mockActiveWorkspace.value = team
++
++    const { type, shouldUseWorkspaceBilling } = useBillingRouting()
++
++    expect(type.value).toBe('legacy')
++    expect(shouldUseWorkspaceBilling.value).toBe(false)
++  })
++
++  it('keeps personal on legacy when consolidated billing is disabled', () => {
++    mockFlags.teamWorkspacesEnabled = true
++    mockFlags.consolidatedBillingEnabled = false
++    mockActiveWorkspace.value = personal
++
++    const { type } = useBillingRouting()
++
++    expect(type.value).toBe('legacy')
++  })
++
++  it('moves personal to workspace billing when consolidated billing is enabled', () => {
++    mockFlags.teamWorkspacesEnabled = true
++    mockFlags.consolidatedBillingEnabled = true
++    mockActiveWorkspace.value = personal
++
++    const { type } = useBillingRouting()
++
++    expect(type.value).toBe('workspace')
++  })
++
++  it('uses workspace billing for team workspaces regardless of consolidated billing', () => {
++    mockFlags.teamWorkspacesEnabled = true
++    mockFlags.consolidatedBillingEnabled = false
++    mockActiveWorkspace.value = team
++
++    const { type } = useBillingRouting()
++
++    expect(type.value).toBe('workspace')
++  })
++
++  it('defaults to legacy while the workspace has not loaded', () => {
++    mockFlags.teamWorkspacesEnabled = true
++    mockFlags.consolidatedBillingEnabled = true
++    mockActiveWorkspace.value = null
++
++    const { type } = useBillingRouting()
++
++    expect(type.value).toBe('legacy')
++  })
++})
+diff --git a/src/composables/billing/useBillingRouting.ts b/src/composables/billing/useBillingRouting.ts
+new file mode 100644
+index 000000000..366175c3f
+--- /dev/null
++++ b/src/composables/billing/useBillingRouting.ts
+@@ -0,0 +1,36 @@
++import { computed } from 'vue'
++
++import { useFeatureFlags } from '@/composables/useFeatureFlags'
++import { useTeamWorkspaceStore } from '@/platform/workspace/stores/teamWorkspaceStore'
++
++import type { BillingType } from './types'
++
++/**
++ * Selects the billing backend for the active workspace: legacy user-scoped
++ * (`/customers/*`) or workspace-scoped (`/api/billing/*`). Personal workspaces
++ * stay legacy until `consolidatedBillingEnabled`; team workspaces are always
++ * workspace-scoped. The routing matrix is covered in useBillingRouting.test.ts.
++ */
++export function useBillingRouting() {
++  const { flags } = useFeatureFlags()
++  const workspaceStore = useTeamWorkspaceStore()
++
++  const type = computed<BillingType>(() => {
++    if (!flags.teamWorkspacesEnabled) return 'legacy'
++
++    // An unloaded workspace has no type yet; stay legacy so bootstrap never
++    // eagerly routes to workspace billing.
++    const workspaceType = workspaceStore.activeWorkspace?.type
++    if (!workspaceType) return 'legacy'
++
++    if (workspaceType === 'personal' && !flags.consolidatedBillingEnabled) {
++      return 'legacy'
++    }
++
++    return 'workspace'
++  })
++
++  const shouldUseWorkspaceBilling = computed(() => type.value === 'workspace')
++
++  return { type, shouldUseWorkspaceBilling }
++}
+diff --git a/src/composables/useFeatureFlags.test.ts b/src/composables/useFeatureFlags.test.ts
+index 8e660c6de..5e7b79def 100644
+--- a/src/composables/useFeatureFlags.test.ts
++++ b/src/composables/useFeatureFlags.test.ts
+@@ -6,6 +6,12 @@ import {
+   useFeatureFlags
+ } from '@/composables/useFeatureFlags'
+ import * as distributionTypes from '@/platform/distribution/types'
++import {
++  cachedConsolidatedBillingEnabled,
++  cachedTeamWorkspacesEnabled,
++  remoteConfig,
++  remoteConfigState
++} from '@/platform/remoteConfig/remoteConfig'
+ import { api } from '@/scripts/api'
+ 
+ // Mock the API module
+@@ -219,6 +225,86 @@ describe('useFeatureFlags', () => {
+       const { flags } = useFeatureFlags()
+       expect(flags.teamWorkspacesEnabled).toBe(true)
+     })
++
++    it('consolidatedBillingEnabled override bypasses isCloud and isAuthenticatedConfigLoaded guards', () => {
++      vi.mocked(distributionTypes).isCloud = false
++      localStorage.setItem('ff:consolidated_billing_enabled', 'true')
++
++      const { flags } = useFeatureFlags()
++      expect(flags.consolidatedBillingEnabled).toBe(true)
++    })
++
++    it('consolidatedBillingEnabled is false off-cloud even without an override', () => {
++      vi.mocked(distributionTypes).isCloud = false
++
++      const { flags } = useFeatureFlags()
++      expect(flags.consolidatedBillingEnabled).toBe(false)
++    })
++  })
++
++  describe('auth-gated flags on cloud', () => {
++    beforeEach(() => {
++      vi.mocked(distributionTypes).isCloud = true
++      remoteConfigState.value = 'unloaded'
++      remoteConfig.value = {}
++      cachedTeamWorkspacesEnabled.value = undefined
++      cachedConsolidatedBillingEnabled.value = undefined
++      localStorage.clear()
++    })
++
++    afterEach(() => {
++      vi.mocked(distributionTypes).isCloud = false
++      remoteConfigState.value = 'unloaded'
++      remoteConfig.value = {}
++      cachedTeamWorkspacesEnabled.value = undefined
++      cachedConsolidatedBillingEnabled.value = undefined
++      localStorage.clear()
++    })
++
++    it('returns the cached session value during the auth window', () => {
++      cachedTeamWorkspacesEnabled.value = false
++      cachedConsolidatedBillingEnabled.value = true
++
++      const { flags } = useFeatureFlags()
++      expect(flags.teamWorkspacesEnabled).toBe(false)
++      expect(flags.consolidatedBillingEnabled).toBe(true)
++    })
++
++    it('defaults to false during the auth window when nothing is cached', () => {
++      const { flags } = useFeatureFlags()
++      expect(flags.teamWorkspacesEnabled).toBe(false)
++      expect(flags.consolidatedBillingEnabled).toBe(false)
++    })
++
++    it('prefers authenticated remoteConfig over the server feature fallback', () => {
++      remoteConfigState.value = 'authenticated'
++      remoteConfig.value = {
++        team_workspaces_enabled: true,
++        consolidated_billing_enabled: true
++      }
++      vi.mocked(api.getServerFeature).mockReturnValue(false)
++
++      const { flags } = useFeatureFlags()
++      expect(flags.teamWorkspacesEnabled).toBe(true)
++      expect(flags.consolidatedBillingEnabled).toBe(true)
++    })
++
++    it('falls back to api.getServerFeature when authenticated config omits the flag', () => {
++      remoteConfigState.value = 'authenticated'
++      remoteConfig.value = {}
++      vi.mocked(api.getServerFeature).mockImplementation(
++        (path, defaultValue) => {
++          if (path === ServerFeatureFlag.TEAM_WORKSPACES_ENABLED) return true
++          if (path === ServerFeatureFlag.CONSOLIDATED_BILLING_ENABLED)
++            return true
++          return defaultValue
++        }
++      )
++
++      const { flags } = useFeatureFlags()
++      expect(flags.teamWorkspacesEnabled).toBe(true)
++      expect(flags.consolidatedBillingEnabled).toBe(true)
++    })
+   })
+ 
+   describe('signupTurnstileMode', () => {
+diff --git a/src/composables/useFeatureFlags.ts b/src/composables/useFeatureFlags.ts
+index 0d05263b4..2f4db71b5 100644
+--- a/src/composables/useFeatureFlags.ts
++++ b/src/composables/useFeatureFlags.ts
+@@ -1,7 +1,9 @@
+ import { computed, reactive, readonly } from 'vue'
++import type { Ref } from 'vue'
+ 
+ import { isCloud, isNightly } from '@/platform/distribution/types'
+ import {
++  cachedConsolidatedBillingEnabled,
+   cachedTeamWorkspacesEnabled,
+   isAuthenticatedConfigLoaded,
+   remoteConfig
+@@ -30,6 +32,7 @@ export enum ServerFeatureFlag {
+   COMFYHUB_PROFILE_GATE_ENABLED = 'comfyhub_profile_gate_enabled',
+   SHOW_SIGNIN_BUTTON = 'show_signin_button',
+   UNIFIED_CLOUD_AUTH = 'unified_cloud_auth',
++  CONSOLIDATED_BILLING_ENABLED = 'consolidated_billing_enabled',
+   SIGNUP_TURNSTILE = 'signup_turnstile'
+ }
+ 
+@@ -46,6 +49,26 @@ function resolveFlag<T>(
+   return remoteConfigValue ?? api.getServerFeature(flagKey, defaultValue)
+ }
+ 
++/**
++ * Resolves a per-user, Cloud-only flag that selects backend behavior. Off the
++ * Cloud build it is always false; during the auth window it falls back to the
++ * cached session value so anonymous bootstrap config cannot route the user to
++ * the wrong backend before authenticated config confirms the flag.
++ */
++function resolveAuthGatedFlag(
++  flagKey: string,
++  remoteConfigValue: boolean | undefined,
++  cachedValue: Ref<boolean | undefined>
++): boolean {
++  const override = getDevOverride<boolean>(flagKey)
++  if (override !== undefined) return override
++
++  if (!isCloud) return false
++  if (!isAuthenticatedConfigLoaded.value) return cachedValue.value ?? false
++
++  return remoteConfigValue ?? api.getServerFeature(flagKey, false)
++}
++
+ /**
+  * Composable for reactive access to server-side feature flags
+  */
+@@ -104,18 +127,10 @@ export function useFeatureFlags() {
+      * and prevents race conditions during initialization.
+      */
+     get teamWorkspacesEnabled() {
+-      const override = getDevOverride<boolean>(
+-        ServerFeatureFlag.TEAM_WORKSPACES_ENABLED
+-      )
+-      if (override !== undefined) return override
+-
+-      if (!isCloud) return false
+-      if (!isAuthenticatedConfigLoaded.value)
+-        return cachedTeamWorkspacesEnabled.value ?? false
+-
+-      return (
+-        remoteConfig.value.team_workspaces_enabled ??
+-        api.getServerFeature(ServerFeatureFlag.TEAM_WORKSPACES_ENABLED, false)
++      return resolveAuthGatedFlag(
++        ServerFeatureFlag.TEAM_WORKSPACES_ENABLED,
++        remoteConfig.value.team_workspaces_enabled,
++        cachedTeamWorkspacesEnabled
+       )
+     },
+     get userSecretsEnabled() {
+@@ -175,6 +190,18 @@ export function useFeatureFlags() {
+         false
+       )
+     },
++    /**
++     * Whether personal workspaces use the consolidated (workspace-scoped)
++     * billing flow. While false (default), personal workspaces stay on the
++     * legacy per-user billing flow; team workspaces are unaffected.
++     */
++    get consolidatedBillingEnabled() {
++      return resolveAuthGatedFlag(
++        ServerFeatureFlag.CONSOLIDATED_BILLING_ENABLED,
++        remoteConfig.value.consolidated_billing_enabled,
++        cachedConsolidatedBillingEnabled
++      )
++    },
+     get signupTurnstileMode() {
+       return resolveFlag(
+         ServerFeatureFlag.SIGNUP_TURNSTILE,
+diff --git a/src/locales/en/main.json b/src/locales/en/main.json
+index 5add400e3..886487caa 100644
+--- a/src/locales/en/main.json
++++ b/src/locales/en/main.json
+@@ -2484,6 +2484,8 @@
+     "model": "Model",
+     "added": "Added",
+     "accountInitialized": "Account initialized",
++    "loadEventsError": "Failed to load activity. Please try again.",
++    "loadEventsUnknownError": "Something went wrong while loading activity. Please refresh and try again.",
+     "eventTypes": {
+       "creditAdded": "Credits Added",
+       "accountCreated": "Account Created",
+diff --git a/src/platform/cloud/subscription/components/SubscriptionPanel.vue b/src/platform/cloud/subscription/components/SubscriptionPanel.vue
+index d77950eee..73c9f4a1c 100644
+--- a/src/platform/cloud/subscription/components/SubscriptionPanel.vue
++++ b/src/platform/cloud/subscription/components/SubscriptionPanel.vue
+@@ -18,7 +18,7 @@
+       </div>
+ 
+       <!-- Workspace mode: workspace-aware subscription content (renders its own footer) -->
+-      <SubscriptionPanelContentWorkspace v-if="teamWorkspacesEnabled" />
++      <SubscriptionPanelContentWorkspace v-if="shouldUseWorkspaceBilling" />
+       <!-- Legacy mode: user-level subscription content -->
+       <template v-else>
+         <SubscriptionPanelContentLegacy />
+@@ -29,24 +29,20 @@
+ </template>
+ 
+ <script setup lang="ts">
+-import { computed, defineAsyncComponent } from 'vue'
++import { defineAsyncComponent } from 'vue'
+ 
+ import CloudBadge from '@/components/topbar/CloudBadge.vue'
+ import { useBillingContext } from '@/composables/billing/useBillingContext'
+-import { useFeatureFlags } from '@/composables/useFeatureFlags'
++import { useBillingRouting } from '@/composables/billing/useBillingRouting'
+ import SubscriptionFooterLinks from '@/platform/cloud/subscription/components/SubscriptionFooterLinks.vue'
+ import SubscriptionPanelContentLegacy from '@/platform/cloud/subscription/components/SubscriptionPanelContentLegacy.vue'
+-import { isCloud } from '@/platform/distribution/types'
+ 
+ const SubscriptionPanelContentWorkspace = defineAsyncComponent(
+   () =>
+     import('@/platform/workspace/components/SubscriptionPanelContentWorkspace.vue')
+ )
+ 
+-const { flags } = useFeatureFlags()
+-const teamWorkspacesEnabled = computed(
+-  () => isCloud && flags.teamWorkspacesEnabled
+-)
++const { shouldUseWorkspaceBilling } = useBillingRouting()
+ 
+ const { isActiveSubscription } = useBillingContext()
+ </script>
+diff --git a/src/platform/cloud/subscription/composables/useSubscriptionDialog.test.ts b/src/platform/cloud/subscription/composables/useSubscriptionDialog.test.ts
+index 0c31e4964..1b99eb4e4 100644
+--- a/src/platform/cloud/subscription/composables/useSubscriptionDialog.test.ts
++++ b/src/platform/cloud/subscription/composables/useSubscriptionDialog.test.ts
+@@ -7,7 +7,7 @@ const mockShowLayoutDialog = vi.fn()
+ const mockShowTeamWorkspacesDialog = vi.fn()
+ const mockIsInPersonalWorkspace = vi.hoisted(() => ({ value: true }))
+ const mockIsFreeTier = vi.hoisted(() => ({ value: false }))
+-const mockTeamWorkspacesEnabled = vi.hoisted(() => ({ value: false }))
++const mockShouldUseWorkspaceBilling = vi.hoisted(() => ({ value: false }))
+ const mockIsCloud = vi.hoisted(() => ({ value: true }))
+ const mockIsLegacyTeamPlan = vi.hoisted(() => ({ value: false }))
+ const mockCanManageSubscription = vi.hoisted(() => ({ value: true }))
+@@ -33,12 +33,10 @@ vi.mock('@/services/dialogService', () => ({
+   })
+ }))
+ 
+-vi.mock('@/composables/useFeatureFlags', () => ({
+-  useFeatureFlags: () => ({
+-    flags: {
+-      get teamWorkspacesEnabled() {
+-        return mockTeamWorkspacesEnabled.value
+-      }
++vi.mock('@/composables/billing/useBillingRouting', () => ({
++  useBillingRouting: () => ({
++    get shouldUseWorkspaceBilling() {
++      return mockShouldUseWorkspaceBilling
+     }
+   })
+ }))
+@@ -80,7 +78,7 @@ describe('useSubscriptionDialog', () => {
+     mockIsCloud.value = true
+     mockIsInPersonalWorkspace.value = true
+     mockIsFreeTier.value = false
+-    mockTeamWorkspacesEnabled.value = false
++    mockShouldUseWorkspaceBilling.value = false
+     mockIsLegacyTeamPlan.value = false
+     mockCanManageSubscription.value = true
+ 
+@@ -111,7 +109,7 @@ describe('useSubscriptionDialog', () => {
+     })
+ 
+     it('does not wire onChooseTeam on the unified table (personal subscribes directly)', () => {
+-      mockTeamWorkspacesEnabled.value = true
++      mockShouldUseWorkspaceBilling.value = true
+       mockIsInPersonalWorkspace.value = true
+       const { showPricingTable } = useSubscriptionDialog()
+ 
+@@ -123,7 +121,7 @@ describe('useSubscriptionDialog', () => {
+     })
+ 
+     it('sizes the unified pricing dialog via the Reka contentClass, not the ignored PrimeVue style', () => {
+-      mockTeamWorkspacesEnabled.value = true
++      mockShouldUseWorkspaceBilling.value = true
+       mockIsInPersonalWorkspace.value = true
+       const { showPricingTable } = useSubscriptionDialog()
+ 
+@@ -138,7 +136,7 @@ describe('useSubscriptionDialog', () => {
+     })
+ 
+     it('defaults to the personal tab in a personal workspace', () => {
+-      mockTeamWorkspacesEnabled.value = true
++      mockShouldUseWorkspaceBilling.value = true
+       mockIsInPersonalWorkspace.value = true
+       const { showPricingTable } = useSubscriptionDialog()
+ 
+@@ -149,7 +147,7 @@ describe('useSubscriptionDialog', () => {
+     })
+ 
+     it('opens the team tab when planMode is forced from a personal workspace', () => {
+-      mockTeamWorkspacesEnabled.value = true
++      mockShouldUseWorkspaceBilling.value = true
+       mockIsInPersonalWorkspace.value = true
+       const { showPricingTable } = useSubscriptionDialog()
+ 
+@@ -159,8 +157,9 @@ describe('useSubscriptionDialog', () => {
+       expect(props.initialPlanMode).toBe('team')
+     })
+ 
+-    it('uses the legacy table (with onChooseTeam) when team workspaces are disabled', () => {
+-      mockTeamWorkspacesEnabled.value = false
++    it('uses the legacy table (with onChooseTeam) on the legacy billing flow', () => {
++      mockShouldUseWorkspaceBilling.value = false
++      mockIsInPersonalWorkspace.value = true
+       const { showPricingTable } = useSubscriptionDialog()
+ 
+       showPricingTable()
+@@ -170,7 +169,7 @@ describe('useSubscriptionDialog', () => {
+     })
+ 
+     it('routes an existing per-member (legacy) team subscriber to the old team table', () => {
+-      mockTeamWorkspacesEnabled.value = true
++      mockShouldUseWorkspaceBilling.value = true
+       mockIsInPersonalWorkspace.value = false
+       mockIsLegacyTeamPlan.value = true
+       const { showPricingTable } = useSubscriptionDialog()
+@@ -188,7 +187,7 @@ describe('useSubscriptionDialog', () => {
+     })
+ 
+     it('keeps a non-legacy (credit-slider) team subscriber on the unified table', () => {
+-      mockTeamWorkspacesEnabled.value = true
++      mockShouldUseWorkspaceBilling.value = true
+       mockIsInPersonalWorkspace.value = false
+       mockIsLegacyTeamPlan.value = false
+       const { showPricingTable } = useSubscriptionDialog()
+diff --git a/src/platform/cloud/subscription/composables/useSubscriptionDialog.ts b/src/platform/cloud/subscription/composables/useSubscriptionDialog.ts
+index e72c8d1f7..9a0aeb7e1 100644
+--- a/src/platform/cloud/subscription/composables/useSubscriptionDialog.ts
++++ b/src/platform/cloud/subscription/composables/useSubscriptionDialog.ts
+@@ -2,7 +2,7 @@ import { defineAsyncComponent } from 'vue'
+ import { useDialogService } from '@/services/dialogService'
+ import { useDialogStore } from '@/stores/dialogStore'
+ import { useBillingContext } from '@/composables/billing/useBillingContext'
+-import { useFeatureFlags } from '@/composables/useFeatureFlags'
++import { useBillingRouting } from '@/composables/billing/useBillingRouting'
+ import { isCloud } from '@/platform/distribution/types'
+ import { useWorkspaceUI } from '@/platform/workspace/composables/useWorkspaceUI'
+ import { useTeamWorkspaceStore } from '@/platform/workspace/stores/teamWorkspaceStore'
+@@ -28,7 +28,7 @@ interface SubscriptionDialogOptions {
+ }
+ 
+ export const useSubscriptionDialog = () => {
+-  const { flags } = useFeatureFlags()
++  const { shouldUseWorkspaceBilling } = useBillingRouting()
+   const dialogService = useDialogService()
+   const dialogStore = useDialogStore()
+   const workspaceStore = useTeamWorkspaceStore()
+@@ -50,7 +50,7 @@ export const useSubscriptionDialog = () => {
+     // small read-only "ask your owner to reactivate" modal instead of the
+     // pricing table. Out-of-credits still routes everyone to the credits flow.
+     if (
+-      flags.teamWorkspacesEnabled &&
++      shouldUseWorkspaceBilling.value &&
+       !workspaceStore.isInPersonalWorkspace &&
+       !permissions.value.canManageSubscription &&
+       options?.reason !== 'out_of_credits'
+@@ -86,9 +86,10 @@ export const useSubscriptionDialog = () => {
+     }
+ 
+     // Jun-5 model: a single unified pricing table (personal/team plan toggle on
+-    // one workspace) when team workspaces are enabled. Replaces the old
+-    // personal-vs-team workspace fork. Flag-off keeps the legacy table.
+-    if (flags.teamWorkspacesEnabled) {
++    // one workspace) for workspaces on the consolidated billing flow. Replaces
++    // the old personal-vs-team workspace fork. Personal workspaces still on the
++    // legacy flow (consolidated billing disabled) get the legacy table.
++    if (shouldUseWorkspaceBilling.value) {
+       // Existing per-member (legacy) team subscribers keep the old tier-based
+       // team table; the unified credit-slider table is for everyone else.
+       // Resolved lazily (not at composable setup): these three composables form
+diff --git a/src/platform/remoteConfig/refreshRemoteConfig.ts b/src/platform/remoteConfig/refreshRemoteConfig.ts
+index effaf4e60..e1b2c9e47 100644
+--- a/src/platform/remoteConfig/refreshRemoteConfig.ts
++++ b/src/platform/remoteConfig/refreshRemoteConfig.ts
+@@ -1,4 +1,5 @@
+ import {
++  cachedConsolidatedBillingEnabled,
+   cachedTeamWorkspacesEnabled,
+   remoteConfig,
+   remoteConfigState
+@@ -55,10 +56,14 @@ export async function refreshRemoteConfig(
+       window.__CONFIG__ = config
+       remoteConfig.value = config
+       remoteConfigState.value = useAuth ? 'authenticated' : 'anonymous'
+-      if (useAuth)
++      if (useAuth) {
+         cachedTeamWorkspacesEnabled.value = Boolean(
+           config.team_workspaces_enabled
+         )
++        cachedConsolidatedBillingEnabled.value = Boolean(
++          config.consolidated_billing_enabled
++        )
++      }
+       return
+     }
+ 
+diff --git a/src/platform/remoteConfig/remoteConfig.ts b/src/platform/remoteConfig/remoteConfig.ts
+index 30806c283..09f4eb46f 100644
+--- a/src/platform/remoteConfig/remoteConfig.ts
++++ b/src/platform/remoteConfig/remoteConfig.ts
+@@ -59,3 +59,8 @@ export const cachedTeamWorkspacesEnabled = useStorage<boolean | undefined>(
+   'team_workspaces_enabled' satisfies `${ServerFeatureFlag.TEAM_WORKSPACES_ENABLED}`,
+   undefined
+ )
++
++export const cachedConsolidatedBillingEnabled = useStorage<boolean | undefined>(
++  'consolidated_billing_enabled' satisfies `${ServerFeatureFlag.CONSOLIDATED_BILLING_ENABLED}`,
++  undefined
++)
+diff --git a/src/platform/remoteConfig/types.ts b/src/platform/remoteConfig/types.ts
+index d74c4b4b6..f2cbc8d2d 100644
+--- a/src/platform/remoteConfig/types.ts
++++ b/src/platform/remoteConfig/types.ts
+@@ -111,6 +111,7 @@ export type RemoteConfig = {
+   comfyhub_upload_enabled?: boolean
+   comfyhub_profile_gate_enabled?: boolean
+   unified_cloud_auth?: boolean
++  consolidated_billing_enabled?: boolean
+   sentry_dsn?: string
+   turnstile_sitekey?: string
+   // Raw, unvalidated wire value (a server typo like 'enfroce' is possible).
+diff --git a/src/platform/settings/composables/useSettingUI.test.ts b/src/platform/settings/composables/useSettingUI.test.ts
+index 4d8e5983a..e0fa17de8 100644
+--- a/src/platform/settings/composables/useSettingUI.test.ts
++++ b/src/platform/settings/composables/useSettingUI.test.ts
+@@ -11,21 +11,49 @@ import type { SettingTreeNode } from '@/platform/settings/settingStore'
+ 
+ import { useSettingUI } from './useSettingUI'
+ 
++const env = vi.hoisted(() => {
++  const state = {
++    isCloud: false,
++    isDesktop: false,
++    isLoggedIn: false,
++    teamWorkspacesEnabled: false,
++    userSecretsEnabled: false,
++    isActiveSubscription: false,
++    billingType: 'legacy' as 'legacy' | 'workspace'
++  }
++  const fakeRef = <K extends keyof typeof state>(key: K) => ({
++    get value() {
++      return state[key]
++    }
++  })
++  return { state, fakeRef }
++})
++
+ vi.mock('vue-i18n', () => ({
+   useI18n: () => ({ t: (_: string, fallback: string) => fallback })
+ }))
+ 
+ vi.mock('@/composables/auth/useCurrentUser', () => ({
+-  useCurrentUser: () => ({ isLoggedIn: ref(false) })
++  useCurrentUser: () => ({ isLoggedIn: env.fakeRef('isLoggedIn') })
+ }))
+ 
+ vi.mock('@/composables/billing/useBillingContext', () => ({
+-  useBillingContext: () => ({ isActiveSubscription: ref(false) })
++  useBillingContext: () => ({
++    isActiveSubscription: env.fakeRef('isActiveSubscription'),
++    type: env.fakeRef('billingType')
++  })
+ }))
+ 
+ vi.mock('@/composables/useFeatureFlags', () => ({
+   useFeatureFlags: () => ({
+-    flags: { teamWorkspacesEnabled: false, userSecretsEnabled: false }
++    flags: {
++      get teamWorkspacesEnabled() {
++        return env.state.teamWorkspacesEnabled
++      },
++      get userSecretsEnabled() {
++        return env.state.userSecretsEnabled
++      }
++    }
+   })
+ }))
+ 
+@@ -34,8 +62,12 @@ vi.mock('@/composables/useVueFeatureFlags', () => ({
+ }))
+ 
+ vi.mock('@/platform/distribution/types', () => ({
+-  isCloud: false,
+-  isDesktop: false
++  get isCloud() {
++    return env.state.isCloud
++  },
++  get isDesktop() {
++    return env.state.isDesktop
++  }
+ }))
+ 
+ vi.mock('@/platform/settings/settingStore', () => ({
+@@ -77,6 +109,16 @@ describe('useSettingUI', () => {
+     setActivePinia(createTestingPinia())
+     vi.clearAllMocks()
+ 
++    Object.assign(env.state, {
++      isCloud: false,
++      isDesktop: false,
++      isLoggedIn: false,
++      teamWorkspacesEnabled: false,
++      userSecretsEnabled: false,
++      isActiveSubscription: false,
++      billingType: 'legacy'
++    })
++
+     vi.mocked(useSettingStore).mockReturnValue({
+       settingsById: mockSettings
+     } as ReturnType<typeof useSettingStore>)
+@@ -137,4 +179,38 @@ describe('useSettingUI', () => {
+     const { defaultCategory } = useSettingUI('about', 'Comfy.Locale')
+     expect(defaultCategory.value.key).toBe('about')
+   })
++
++  describe('legacy billing in the workspace layout', () => {
++    const navKeys = (groups: { items: { id: string }[] }[]) =>
++      groups.flatMap((group) => group.items.map((item) => item.id))
++
++    beforeEach(() => {
++      Object.assign(env.state, {
++        isCloud: true,
++        isLoggedIn: true,
++        teamWorkspacesEnabled: true,
++        isActiveSubscription: true
++      })
++      window.__CONFIG__ = {
++        subscription_required: true
++      } as typeof window.__CONFIG__
++    })
++
++    it('exposes the legacy plan panel when billing is legacy', () => {
++      env.state.billingType = 'legacy'
++      const { defaultCategory, navGroups } = useSettingUI('subscription')
++
++      expect(defaultCategory.value.key).toBe('subscription')
++      expect(navKeys(navGroups.value)).toContain('subscription')
++      expect(navKeys(navGroups.value)).toContain('workspace')
++    })
++
++    it('hides the legacy plan panel when billing is workspace', () => {
++      env.state.billingType = 'workspace'
++      const { navGroups } = useSettingUI()
++
++      expect(navKeys(navGroups.value)).not.toContain('subscription')
++      expect(navKeys(navGroups.value)).toContain('workspace')
++    })
++  })
+ })
+diff --git a/src/platform/settings/composables/useSettingUI.ts b/src/platform/settings/composables/useSettingUI.ts
+index 3cc00bbd8..f313dd9f2 100644
+--- a/src/platform/settings/composables/useSettingUI.ts
++++ b/src/platform/settings/composables/useSettingUI.ts
+@@ -53,7 +53,7 @@ export function useSettingUI(
+ 
+   const { flags } = useFeatureFlags()
+   const { shouldRenderVueNodes } = useVueFeatureFlags()
+-  const { isActiveSubscription } = useBillingContext()
++  const { isActiveSubscription, type: billingType } = useBillingContext()
+ 
+   const teamWorkspacesEnabled = computed(
+     () => isCloud && flags.teamWorkspacesEnabled
+@@ -157,6 +157,13 @@ export function useSettingUI(
+     return isActiveSubscription.value
+   })
+ 
++  const shouldShowLegacyPlanCreditsPanel = computed(
++    () =>
++      isLoggedIn.value &&
++      billingType.value === 'legacy' &&
++      shouldShowPlanCreditsPanel.value
++  )
++
+   const userPanel: SettingPanelItem = {
+     node: {
+       key: 'user',
+@@ -301,6 +308,9 @@ export function useSettingUI(
+       label: 'General',
+       children: [
+         translateCategory(userPanel.node),
++        ...(shouldShowLegacyPlanCreditsPanel.value && subscriptionPanel
++          ? [translateCategory(subscriptionPanel.node)]
++          : []),
+         ...coreSettingCategories.value.slice(0, 1).map(translateCategory),
+         ...(shouldShowSecretsPanel.value
+           ? [translateCategory(secretsPanel.node)]
+@@ -332,9 +342,7 @@ export function useSettingUI(
+       label: 'Account',
+       children: [
+         userPanel.node,
+-        ...(isLoggedIn.value &&
+-        shouldShowPlanCreditsPanel.value &&
+-        subscriptionPanel
++        ...(shouldShowLegacyPlanCreditsPanel.value && subscriptionPanel
+           ? [subscriptionPanel.node]
+           : []),
+         ...(shouldShowSecretsPanel.value ? [secretsPanel.node] : []),
+diff --git a/src/storybook/mocks/useFeatureFlags.ts b/src/storybook/mocks/useFeatureFlags.ts
+index 479699b50..ed04ad22a 100644
+--- a/src/storybook/mocks/useFeatureFlags.ts
++++ b/src/storybook/mocks/useFeatureFlags.ts
+@@ -25,13 +25,15 @@ export enum ServerFeatureFlag {
+   COMFYHUB_UPLOAD_ENABLED = 'comfyhub_upload_enabled',
+   COMFYHUB_PROFILE_GATE_ENABLED = 'comfyhub_profile_gate_enabled',
+   SHOW_SIGNIN_BUTTON = 'show_signin_button',
+-  UNIFIED_CLOUD_AUTH = 'unified_cloud_auth'
++  UNIFIED_CLOUD_AUTH = 'unified_cloud_auth',
++  CONSOLIDATED_BILLING_ENABLED = 'consolidated_billing_enabled'
+ }
+ 
+ export function useFeatureFlags() {
+   return {
+     flags: {
+-      teamWorkspacesEnabled: true
++      teamWorkspacesEnabled: true,
++      consolidatedBillingEnabled: true
+     }
+   }
+ }
