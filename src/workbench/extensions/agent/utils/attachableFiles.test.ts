@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   AGENT_ATTACH_ACCEPT,
@@ -118,6 +118,17 @@ describe('isValidAgentAttachment', () => {
     await expect(
       isValidAgentAttachment(new File(['not a video'], 'renamed.mp4'))
     ).resolves.toBe(false)
+  })
+
+  it('rejects an unreadable video without propagating the read failure', async () => {
+    const file = new File(['video'], 'clip.mp4')
+    const unreadableSlice = new Blob(['video'])
+    vi.spyOn(unreadableSlice, 'arrayBuffer').mockRejectedValue(
+      new DOMException('File became unreadable', 'NotReadableError')
+    )
+    vi.spyOn(file, 'slice').mockReturnValue(unreadableSlice)
+
+    await expect(isValidAgentAttachment(file)).resolves.toBe(false)
   })
 
   it('does not inspect non-video attachments', () => {

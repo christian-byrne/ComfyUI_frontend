@@ -89,4 +89,5 @@ export function isValidAgentAttachment(file: File): boolean | Promise<boolean> {
           return false
       }
     })
+    .catch(() => false)
 }
