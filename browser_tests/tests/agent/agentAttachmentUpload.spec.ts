@@ -63,3 +63,48 @@ test.describe('Agent attachment cancellation', { tag: '@cloud' }, () => {
     }
   })
 })
+
+// Regression: https://linear.app/comfyorg/issue/PM-1514
+test.describe('Agent attachment validation', { tag: ['@cloud', '@ui'] }, () => {
+  test('rejects text renamed as video from the file picker', async ({
+    comfyPage,
+    agentPanel
+  }) => {
+    await agentPanel.open()
+    await agentPanel.fileInput.setInputFiles({
+      name: 'renamed.mp4',
+      mimeType: 'video/mp4',
+      buffer: Buffer.from('plain text')
+    })
+
+    await expect(agentPanel.attachmentChip('renamed.mp4')).toHaveCount(0)
+    await expect(
+      comfyPage.toast.withText(enMessages.agent.assetNotAttachable)
+    ).toBeVisible()
+  })
+
+  test('rejects text renamed as video from drag and drop', async ({
+    comfyPage,
+    agentPanel
+  }) => {
+    const page = comfyPage.page
+    await agentPanel.open()
+    const dataTransfer = await page.evaluateHandle(() => {
+      const transfer = new DataTransfer()
+      transfer.items.add(
+        new File(['plain text'], 'renamed.mp4', { type: 'video/mp4' })
+      )
+      return transfer
+    })
+    try {
+      await agentPanel.root.dispatchEvent('drop', { dataTransfer })
+    } finally {
+      await dataTransfer.dispose()
+    }
+
+    await expect(agentPanel.attachmentChip('renamed.mp4')).toHaveCount(0)
+    await expect(
+      comfyPage.toast.withText(enMessages.agent.assetNotAttachable)
+    ).toBeVisible()
+  })
+})

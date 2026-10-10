@@ -120,9 +120,9 @@ describe('isValidAgentAttachment', () => {
     ).resolves.toBe(false)
   })
 
-  it('does not inspect non-video attachments', async () => {
-    await expect(
-      isValidAgentAttachment(new File(['plain text'], 'notes.txt'))
-    ).resolves.toBe(true)
+  it('does not inspect non-video attachments', () => {
+    expect(isValidAgentAttachment(new File(['plain text'], 'notes.txt'))).toBe(
+      true
+    )
   })
 })

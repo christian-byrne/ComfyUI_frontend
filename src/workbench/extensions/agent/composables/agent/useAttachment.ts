@@ -40,7 +40,7 @@ type DeferredFileResult =
 
 export interface UseAttachmentOptions {
   upload: (file: File, signal: AbortSignal) => Promise<UploadResult>
-  validate?: (file: File) => Promise<boolean>
+  validate?: (file: File) => boolean | Promise<boolean>
   uploadTimeoutMs?: number
   maxBytes?: (file: File) => number
   onError?: (message: string) => void
@@ -174,11 +174,17 @@ export function useAttachment(options: UseAttachmentOptions) {
     return true
   }
 
-  async function validateFile(file: File): Promise<boolean> {
+  function validateFile(file: File): boolean | Promise<boolean> {
     if (!options.validate) return true
-    const valid = await options.validate(file)
-    if (!valid) options.onInvalid?.(file)
-    return valid
+    const result = options.validate(file)
+    if (typeof result === 'boolean') {
+      if (!result) options.onInvalid?.(file)
+      return result
+    }
+    return result.then((valid) => {
+      if (!valid) options.onInvalid?.(file)
+      return valid
+    })
   }
 
   // The file's declared size/type and the failure's shape (status code,
@@ -349,19 +355,29 @@ export function useAttachment(options: UseAttachmentOptions) {
     return uploadDeferredFile(id, name, resolve)
   }
 
+  function stageValidatedFile(
+    file: File,
+    valid: boolean,
+    duplicates: string[],
+    staged: Array<{ file: File; id: string }>
+  ): void {
+    if (!valid) return
+    const sourceKey = `file:${JSON.stringify([file.name, file.size, file.lastModified, file.type])}`
+    const id = stage(file.name, sourceKey)
+    if (!id) duplicates.push(file.name)
+    else staged.push({ file, id })
+  }
+
   async function addFiles(files: Iterable<File>): Promise<boolean> {
     const generation = cancellationGeneration
     const duplicates: string[] = []
     const staged: Array<{ file: File; id: string }> = []
     for (const file of files) {
       if (isTooLarge(file)) continue
-      const valid = await validateFile(file)
+      const result = validateFile(file)
+      const valid = typeof result === 'boolean' ? result : await result
       if (generation !== cancellationGeneration) return false
-      if (!valid) continue
-      const sourceKey = `file:${JSON.stringify([file.name, file.size, file.lastModified, file.type])}`
-      const id = stage(file.name, sourceKey)
-      if (!id) duplicates.push(file.name)
-      else staged.push({ file, id })
+      stageValidatedFile(file, valid, duplicates, staged)
     }
     if (duplicates.length) options.onDuplicate?.(duplicates)
     let uploaded = 0

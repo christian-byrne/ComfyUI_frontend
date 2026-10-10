@@ -3046,10 +3046,10 @@ describe('AgentPanelRoot attach flow', () => {
 
     expect(uploaded).toEqual([])
     expect(screen.queryByText('renamed.mp4')).not.toBeInTheDocument()
-    expect(useToastStore().messagesToAdd).toContainEqual(
+    expect(useToast().toasts).toContainEqual(
       expect.objectContaining({
-        severity: 'warn',
-        detail: i18n.global.t('agent.assetNotAttachable')
+        kind: 'warning',
+        title: i18n.global.t('agent.assetNotAttachable')
       })
     )
   })
@@ -3066,10 +3066,10 @@ describe('AgentPanelRoot attach flow', () => {
     ).toBe(true)
 
     await vi.waitFor(() =>
-      expect(useToastStore().messagesToAdd).toContainEqual(
+      expect(useToast().toasts).toContainEqual(
         expect.objectContaining({
-          severity: 'warn',
-          detail: i18n.global.t('agent.assetNotAttachable')
+          kind: 'warning',
+          title: i18n.global.t('agent.assetNotAttachable')
         })
       )
     )
@@ -3488,7 +3488,7 @@ describe('AgentPanelRoot attach flow', () => {
   )
 
   it('warns once when a Media-card video has invalid contents', async () => {
-    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchSpy = vi.mocked(fetch).mockImplementation(async (input) => {
       const url = String(input)
       if (url.includes('/api/view'))
         return new Response(new Blob(['plain text']), {
@@ -3499,7 +3499,6 @@ describe('AgentPanelRoot attach flow', () => {
         headers: { 'Content-Type': 'application/json' }
       })
     })
-    vi.stubGlobal('fetch', fetchSpy)
     renderWithSelectedTarget()
     await nextTick()
 
@@ -3515,8 +3514,8 @@ describe('AgentPanelRoot attach flow', () => {
 
     await vi.waitFor(() =>
       expect(
-        useToastStore().messagesToAdd.filter(
-          ({ detail }) => detail === i18n.global.t('agent.assetNotAttachable')
+        useToast().toasts.filter(
+          ({ title }) => title === i18n.global.t('agent.assetNotAttachable')
         )
       ).toHaveLength(1)
     )

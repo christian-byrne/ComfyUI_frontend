@@ -63,26 +63,30 @@ const bytesMatch = (bytes: Uint8Array, offset: number, expected: number[]) =>
  * filename. Browsers infer File.type from a renamed extension, so MIME alone
  * cannot distinguish a text file renamed to `.mp4`.
  */
-export async function isValidAgentAttachment(file: File): Promise<boolean> {
+export function isValidAgentAttachment(file: File): boolean | Promise<boolean> {
   if (getMediaTypeFromFilename(file.name) !== 'video') return true
 
   const extension = file.name.split('.').pop()?.toLowerCase()
-  const bytes = new Uint8Array(await file.slice(0, 12).arrayBuffer())
-
-  switch (extension) {
-    case 'mp4':
-    case 'm4v':
-    case 'mov':
-      return bytesMatch(bytes, 4, [0x66, 0x74, 0x79, 0x70]) // ftyp
-    case 'webm':
-    case 'mkv':
-      return bytesMatch(bytes, 0, [0x1a, 0x45, 0xdf, 0xa3]) // EBML
-    case 'avi':
-      return (
-        bytesMatch(bytes, 0, [0x52, 0x49, 0x46, 0x46]) && // RIFF
-        bytesMatch(bytes, 8, [0x41, 0x56, 0x49, 0x20]) // AVI
-      )
-    default:
-      return false
-  }
+  return file
+    .slice(0, 12)
+    .arrayBuffer()
+    .then((buffer) => {
+      const bytes = new Uint8Array(buffer)
+      switch (extension) {
+        case 'mp4':
+        case 'm4v':
+        case 'mov':
+          return bytesMatch(bytes, 4, [0x66, 0x74, 0x79, 0x70]) // ftyp
+        case 'webm':
+        case 'mkv':
+          return bytesMatch(bytes, 0, [0x1a, 0x45, 0xdf, 0xa3]) // EBML
+        case 'avi':
+          return (
+            bytesMatch(bytes, 0, [0x52, 0x49, 0x46, 0x46]) && // RIFF
+            bytesMatch(bytes, 8, [0x41, 0x56, 0x49, 0x20]) // AVI
+          )
+        default:
+          return false
+      }
+    })
 }
