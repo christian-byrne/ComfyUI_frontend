@@ -4189,13 +4189,10 @@ describe('AgentPanelRoot history', () => {
   }
 
   it('keeps a new chat rename when the first turn creates its thread', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string) =>
-        url.endsWith('/api/agent/threads')
-          ? json(200, agentThreadList())
-          : json(202, { thread_id: 'th-new', message_id: 'm-new' })
-      )
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) =>
+      String(input).endsWith('/api/agent/threads')
+        ? json(200, agentThreadList())
+        : json(202, { thread_id: 'th-new', message_id: 'm-new' })
     )
     workflowStore.activeWorkflow = addTab('workflows/new-chat.json')
     renderWithSelectedTarget()
